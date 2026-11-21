@@ -1,0 +1,165 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FindIt - Lost & Found</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- Background Video -->
+    <video autoplay muted loop playsinline id="bg-video">
+        <source src="campus.mp4" type="video/mp4">
+    </video>
+
+    <div class="overlay"></div>
+
+    <!-- Header -->
+    <header>
+        <h1>FindIt</h1>
+        <p>Lost something? Found something? Let's reconnect!</p>
+
+        <nav>
+            <a href="#home">Home</a>
+            <a href="#recent">Recent Items</a>
+            <a href="#matches">Possible Matches</a>
+            <a href="#about">About</a>
+        </nav>
+    </header>
+
+    <!-- Home -->
+    <main>
+        <section id="home" class="hero">
+            <h2>Welcome to FindIt</h2>
+            <p>Your College Lost & Found Platform</p>
+
+            <div class="main-buttons">
+                <button id="lostBtn">Report Lost Item</button>
+                <button id="foundBtn">Report Found Item</button>
+                <button id="viewBtn">View All Items</button>
+            </div>
+        </section>
+
+        <!-- Report Form -->
+        <section id="reportPanel" class="report-panel">
+            <button id="closePanel" class="close-btn">✕</button>
+
+            <h2 id="formTitle">Report an Item</h2>
+
+            <form id="reportForm">
+
+                <label for="itemName">Item Name</label>
+                <input type="text" id="itemName" required
+                    placeholder="Example: Black wallet">
+
+                <label for="category">Category</label>
+                <select id="category" required>
+                    <option value="">Select category</option>
+                    <option>Electronics</option>
+                    <option>Books & Notes</option>
+                    <option>Accessories</option>
+                    <option>Clothing</option>
+                    <option>Documents</option>
+                    <option>Other</option>
+                </select>
+
+                <label for="location">Location</label>
+                <input type="text" id="location" required
+                    placeholder="Where was it lost or found?">
+
+                <label for="itemDate">Date</label>
+                <input type="date" id="itemDate" required>
+
+                <label for="description">Description</label>
+                <textarea id="description" required
+                    placeholder="Describe the item"></textarea>
+
+                <label for="itemPhoto">Upload Photo</label>
+                <input type="file" id="itemPhoto" accept="image/*">
+
+                <button type="submit" id="submitReport">
+                    Submit Report
+                </button>
+
+            </form>
+        </section>
+
+        <!-- Recent Items -->
+        <section id="recent" class="content-section">
+
+            <h2>Recent Items</h2>
+
+            <!-- Search and Filter -->
+            <div class="search-filter">
+
+                <h3>Search Items</h3>
+
+                <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="Search by item name, location or description..."
+                >
+
+                <select id="categoryFilter">
+                    <option value="">All Categories</option>
+                    <option value="Electronics">Electronics</option>
+                    <option value="Books & Notes">Books & Notes</option>
+                    <option value="Accessories">Accessories</option>
+                    <option value="Clothing">Clothing</option>
+                    <option value="Documents">Documents</option>
+                    <option value="Other">Other</option>
+                </select>
+
+                <select id="statusFilter">
+                    <option value="">All Items</option>
+                    <option value="Lost">Lost Items</option>
+                    <option value="Found">Found Items</option>
+                </select>
+
+            </div>
+
+            <div id="itemContainer" class="item-container">
+                <p>Loading items...</p>
+            </div>
+
+        </section>
+
+        <!-- Possible Matches -->
+        <section id="matches" class="content-section">
+            <h2>Possible Matches</h2>
+            <div id="matchContainer" class="match-container">
+                <p>Possible matching items will appear here.</p>
+            </div>
+        </section>
+
+        <!-- About -->
+        <section id="about" class="content-section">
+            <h2>About FindIt</h2>
+            <p>
+                FindIt is a college Lost and Found platform
+                designed to help students reconnect with their
+                lost belongings.
+            </p>
+        </section>
+
+    </main>
+
+    <footer>
+        <p>© 2026 FindIt | College Lost & Found</p>
+    </footer>
+
+    <!-- Firebase Libraries -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+
+    <!-- Project JavaScript -->
+    <script src="firebase.js"></script>
+    <script src="script.js"></script>
+
+</body>
+</html>
