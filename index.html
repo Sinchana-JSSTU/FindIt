@@ -26,12 +26,14 @@
             <a href="#home">Home</a>
             <a href="#recent">Recent Items</a>
             <a href="#matches">Possible Matches</a>
+            <a href="#chatSection">Chat</a>
             <a href="#about">About</a>
         </nav>
     </header>
 
-    <!-- Home -->
     <main>
+
+        <!-- Home -->
         <section id="home" class="hero">
             <h2>Welcome to FindIt</h2>
             <p>Your College Lost & Found Platform</p>
@@ -43,8 +45,10 @@
             </div>
         </section>
 
+
         <!-- Report Form -->
         <section id="reportPanel" class="report-panel">
+
             <button id="closePanel" class="close-btn">✕</button>
 
             <h2 id="formTitle">Report an Item</h2>
@@ -87,12 +91,12 @@
             </form>
         </section>
 
+
         <!-- Recent Items -->
         <section id="recent" class="content-section">
 
             <h2>Recent Items</h2>
 
-            <!-- Search and Filter -->
             <div class="search-filter">
 
                 <h3>Search Items</h3>
@@ -127,35 +131,115 @@
 
         </section>
 
+
         <!-- Possible Matches -->
         <section id="matches" class="content-section">
+
             <h2>Possible Matches</h2>
+
             <div id="matchContainer" class="match-container">
                 <p>Possible matching items will appear here.</p>
             </div>
+
         </section>
+
+
+        <!-- PRIVATE CHAT -->
+        <section id="chatSection" class="content-section">
+
+            <h2>FindIt Private Chat</h2>
+
+            <p>
+                Communicate with the other student to arrange
+                the handover of your item.
+            </p>
+
+            <!-- Conversation List -->
+            <div id="chatList" class="chat-list">
+
+                <p id="chatEmptyState">
+                    Your conversations will appear here
+                    after a claim request is sent.
+                </p>
+
+            </div>
+
+            <!-- Chat Window -->
+            <div id="chatWindow" class="chat-window" hidden>
+
+                <div class="chat-header">
+                    <h3 id="chatHeader">
+                        Conversation
+                    </h3>
+
+                    <p>
+                        Private conversation between claim participants
+                    </p>
+                </div>
+
+                <!-- Messages -->
+                <div id="chatMessages" class="chat-messages">
+
+                    <p>
+                        Select a conversation to view messages.
+                    </p>
+
+                </div>
+
+                <!-- Message Form -->
+                <form id="chatForm" class="chat-form">
+
+                    <input
+                        type="text"
+                        id="chatInput"
+                        placeholder="Type your message..."
+                        maxlength="2000"
+                        autocomplete="off"
+                        required
+                    >
+
+                    <button type="submit" id="sendChatMessage">
+                        Send
+                    </button>
+
+                </form>
+
+            </div>
+
+        </section>
+
 
         <!-- About -->
         <section id="about" class="content-section">
+
             <h2>About FindIt</h2>
+
             <p>
                 FindIt is a college Lost and Found platform
                 designed to help students reconnect with their
                 lost belongings.
             </p>
+
         </section>
 
     </main>
 
+
+    <!-- Footer -->
     <footer>
         <p>© 2026 FindIt | College Lost & Found</p>
     </footer>
 
+
     <!-- Firebase Libraries -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+
 
     <!-- Project JavaScript -->
     <script src="firebase.js"></script>
