@@ -294,7 +294,10 @@ function renderReports() {
     const category = categoryFilter?.value || "";
     const status = statusFilter?.value || "";
 
+    // IMPORTANT: Hide returned reports for everyone
     const filtered = allReports.filter(function (report) {
+        if (report.returned === true) return false;
+
         const searchableText = normalizeText(
             report.itemName + " " +
             report.location + " " +
@@ -367,6 +370,11 @@ async function createClaimRequest(lost, found) {
         return;
     }
 
+    if (lost.returned === true || found.returned === true) {
+        alert("This item has already been returned.");
+        return;
+    }
+
     const claimId = lost.id + "_" + found.id;
     const claimRef = db.collection("claims").doc(claimId);
 
@@ -396,6 +404,52 @@ async function createClaimRequest(lost, found) {
     }
 }
 
+// Hide both reports after a claim is Returned
+async function hideReturnedReports(claimId, claim) {
+    if (!currentUser || !claim || claim.status !== "Returned") {
+        return;
+    }
+
+    // Only claim participants can perform this operation
+    if (
+        currentUser.uid !== claim.lostOwnerUid &&
+        currentUser.uid !== claim.foundOwnerUid
+    ) {
+        return;
+    }
+
+    try {
+        const reportIds = [
+            claim.lostReportId,
+            claim.foundReportId
+        ];
+
+        for (const reportId of reportIds) {
+            if (!reportId) continue;
+
+            const reportRef = db.collection("reports").doc(reportId);
+            const reportSnapshot = await reportRef.get();
+
+            if (!reportSnapshot.exists) continue;
+
+            const report = reportSnapshot.data();
+
+            // Avoid unnecessary repeated updates
+            if (report.returned === true) continue;
+
+            await reportRef.update({
+                returned: true,
+                claimId: claimId
+            });
+        }
+
+        console.log("Returned reports hidden successfully.");
+
+    } catch (error) {
+        console.error("Could not hide returned reports:", error);
+    }
+}
+
 // Approve claim
 async function approveClaim(claimId) {
     if (!currentUser) return;
@@ -410,6 +464,13 @@ async function approveClaim(claimId) {
         }
 
         const claim = snapshot.data();
+
+        if (claim.status === "Returned") {
+            alert("This item has already been returned.");
+            await hideReturnedReports(claimId, claim);
+            return;
+        }
+
         const updates = {};
 
         if (
@@ -443,7 +504,21 @@ async function approveClaim(claimId) {
 
         await claimRef.update(updates);
 
-        alert("Your confirmation has been recorded.");
+        // If both students approved, hide both reports
+        if (updates.status === "Returned") {
+            const updatedClaim = {
+                ...claim,
+                ...updates
+            };
+
+            await hideReturnedReports(claimId, updatedClaim);
+
+            alert(
+                "Both students confirmed! The item is marked as returned, and both reports have been hidden."
+            );
+        } else {
+            alert("Your confirmation has been recorded. Waiting for the other student.");
+        }
 
     } catch (error) {
         console.error("Claim approval error:", error);
@@ -540,7 +615,8 @@ function renderChatList() {
 
     if (claims.length === 0) {
         const empty = document.createElement("p");
-        empty.textContent = "Your conversations will appear here after a claim request is sent.";
+        empty.textContent =
+            "Your conversations will appear here after a claim request is sent.";
         chatList.appendChild(empty);
         return;
     }
@@ -598,9 +674,7 @@ function openChat(claimId, claim) {
                 : "Chat with the lost item owner";
     }
 
-    if (chatMessages) {
-        chatMessages.innerHTML = "<p>Loading messages...</p>";
-    }
+    chatMessages.innerHTML = "<p>Loading messages...</p>";
 
     updateChatStatus(claim);
 
@@ -757,6 +831,14 @@ function listenToClaims(user) {
             renderChatList();
             findMatches();
 
+            snapshot.forEach(function (doc) {
+                const claim = doc.data();
+
+                if (claim.status === "Returned") {
+                    hideReturnedReports(doc.id, claim);
+                }
+            });
+
             if (currentChatId && allClaims[currentChatId]) {
                 updateChatStatus(allClaims[currentChatId]);
             }
@@ -775,6 +857,14 @@ function listenToClaims(user) {
             renderClaimRequests();
             renderChatList();
             findMatches();
+
+            snapshot.forEach(function (doc) {
+                const claim = doc.data();
+
+                if (claim.status === "Returned") {
+                    hideReturnedReports(doc.id, claim);
+                }
+            });
 
             if (currentChatId && allClaims[currentChatId]) {
                 updateChatStatus(allClaims[currentChatId]);
@@ -795,11 +885,16 @@ function findMatches() {
     heading.textContent = "Possible Matches";
     matchContainer.appendChild(heading);
 
-    const lostReports = allReports.filter(
+    // Exclude reports already returned
+    const activeReports = allReports.filter(
+        report => report.returned !== true
+    );
+
+    const lostReports = activeReports.filter(
         report => report.status === "Lost"
     );
 
-    const foundReports = allReports.filter(
+    const foundReports = activeReports.filter(
         report => report.status === "Found"
     );
 
