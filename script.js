@@ -36,6 +36,18 @@ if (!claimContainer && matchContainer) {
     );
 }
 
+// Private chat elements
+const chatList = document.getElementById("chatList");
+const chatWindow = document.getElementById("chatWindow");
+const chatHeader = document.getElementById("chatHeader");
+const chatMessages = document.getElementById("chatMessages");
+const chatForm = document.getElementById("chatForm");
+const chatInput = document.getElementById("chatInput");
+const chatEmptyState = document.getElementById("chatEmptyState");
+
+let currentChatId = null;
+let stopMessagesListener = null;
+
 // Open report form
 if (lostBtn) {
     lostBtn.addEventListener("click", function () {
@@ -338,7 +350,7 @@ function renderReports() {
     });
 }
 
-// UPDATED: Create claim request without reading the missing document first
+// Create claim request
 async function createClaimRequest(lost, found) {
     if (!currentUser) {
         alert("Please wait for Firebase connection.");
@@ -371,7 +383,7 @@ async function createClaimRequest(lost, found) {
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
-        alert("Claim request sent successfully!");
+        alert("Claim request sent successfully! You can now use Private Chat.");
 
     } catch (error) {
         console.error("Claim request error:", error);
@@ -514,6 +526,216 @@ function renderClaimRequests() {
     });
 }
 
+// ======================================
+// PRIVATE CHAT
+// ======================================
+
+// Display conversations
+function renderChatList() {
+    if (!chatList || !currentUser) return;
+
+    chatList.innerHTML = "";
+
+    const claims = Object.entries(allClaims);
+
+    if (claims.length === 0) {
+        const empty = document.createElement("p");
+        empty.textContent = "Your conversations will appear here after a claim request is sent.";
+        chatList.appendChild(empty);
+        return;
+    }
+
+    claims.sort(function (a, b) {
+        const timeA = a[1].createdAt?.seconds || 0;
+        const timeB = b[1].createdAt?.seconds || 0;
+        return timeB - timeA;
+    });
+
+    claims.forEach(function ([claimId, claim]) {
+        const conversation = document.createElement("button");
+        conversation.type = "button";
+        conversation.className = "chat-conversation";
+
+        const role = currentUser.uid === claim.lostOwnerUid
+            ? "Lost item owner"
+            : "Found item owner";
+
+        conversation.textContent =
+            "Conversation with " +
+            (role === "Lost item owner"
+                ? "the finder"
+                : "the lost item owner") +
+            " — " + claim.status;
+
+        conversation.addEventListener("click", function () {
+            openChat(claimId, claim);
+        });
+
+        chatList.appendChild(conversation);
+    });
+}
+
+// Open a conversation
+function openChat(claimId, claim) {
+    if (!currentUser || !chatWindow || !chatMessages) return;
+
+    if (
+        currentUser.uid !== claim.lostOwnerUid &&
+        currentUser.uid !== claim.foundOwnerUid
+    ) {
+        alert("You are not allowed to open this conversation.");
+        return;
+    }
+
+    currentChatId = claimId;
+
+    chatWindow.hidden = false;
+
+    if (chatHeader) {
+        chatHeader.textContent =
+            currentUser.uid === claim.lostOwnerUid
+                ? "Chat with the finder"
+                : "Chat with the lost item owner";
+    }
+
+    if (chatMessages) {
+        chatMessages.innerHTML = "<p>Loading messages...</p>";
+    }
+
+    updateChatStatus(claim);
+
+    if (stopMessagesListener) {
+        stopMessagesListener();
+        stopMessagesListener = null;
+    }
+
+    stopMessagesListener = db.collection("claims")
+        .doc(claimId)
+        .collection("messages")
+        .orderBy("createdAt", "asc")
+        .onSnapshot(function (snapshot) {
+            chatMessages.innerHTML = "";
+
+            if (snapshot.empty) {
+                chatMessages.innerHTML =
+                    "<p>No messages yet. Start the conversation!</p>";
+                return;
+            }
+
+            snapshot.forEach(function (doc) {
+                const message = doc.data();
+
+                const messageBox = document.createElement("div");
+
+                messageBox.className =
+                    "chat-message " +
+                    (message.senderUid === currentUser.uid
+                        ? "my-message"
+                        : "other-message");
+
+                const messageText = document.createElement("p");
+                messageText.textContent = message.text;
+
+                const timeText = document.createElement("small");
+
+                if (message.createdAt?.toDate) {
+                    timeText.textContent =
+                        message.createdAt.toDate().toLocaleString();
+                } else {
+                    timeText.textContent = "Sending...";
+                }
+
+                messageBox.append(messageText, timeText);
+                chatMessages.appendChild(messageBox);
+            });
+
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        }, function (error) {
+            console.error("Chat loading error:", error);
+            chatMessages.textContent =
+                "Could not load messages: " + error.message;
+        });
+}
+
+// Enable or disable chat based on claim status
+function updateChatStatus(claim) {
+    if (!chatForm || !chatInput) return;
+
+    const returned = claim.status === "Returned";
+
+    chatInput.disabled = returned;
+
+    const button = chatForm.querySelector("button[type='submit']");
+
+    if (button) {
+        button.disabled = returned;
+        button.textContent = returned ? "Chat Closed" : "Send";
+    }
+
+    chatInput.placeholder = returned
+        ? "This item has been returned. Chat is closed."
+        : "Type your message...";
+}
+
+// Send a message
+if (chatForm) {
+    chatForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+
+        if (!currentUser || !currentChatId) {
+            alert("Please select a conversation first.");
+            return;
+        }
+
+        const text = chatInput.value.trim();
+
+        if (!text) return;
+
+        const claim = allClaims[currentChatId];
+
+        if (!claim || claim.status !== "Pending") {
+            alert("This conversation is closed.");
+            updateChatStatus(claim || {});
+            return;
+        }
+
+        if (
+            currentUser.uid !== claim.lostOwnerUid &&
+            currentUser.uid !== claim.foundOwnerUid
+        ) {
+            alert("You cannot send messages in this conversation.");
+            return;
+        }
+
+        const button = chatForm.querySelector("button[type='submit']");
+
+        try {
+            if (button) button.disabled = true;
+
+            await db.collection("claims")
+                .doc(currentChatId)
+                .collection("messages")
+                .add({
+                    senderUid: currentUser.uid,
+                    text: text,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+            chatInput.value = "";
+
+        } catch (error) {
+            console.error("Message sending error:", error);
+            alert("Could not send message: " + error.message);
+
+        } finally {
+            if (button && claim.status === "Pending") {
+                button.disabled = false;
+            }
+        }
+    });
+}
+
 // Listen for claim requests
 let stopLostClaims = null;
 let stopFoundClaims = null;
@@ -532,7 +754,12 @@ function listenToClaims(user) {
             });
 
             renderClaimRequests();
+            renderChatList();
             findMatches();
+
+            if (currentChatId && allClaims[currentChatId]) {
+                updateChatStatus(allClaims[currentChatId]);
+            }
 
         }, function (error) {
             console.error("Lost claim listener error:", error);
@@ -546,7 +773,12 @@ function listenToClaims(user) {
             });
 
             renderClaimRequests();
+            renderChatList();
             findMatches();
+
+            if (currentChatId && allClaims[currentChatId]) {
+                updateChatStatus(allClaims[currentChatId]);
+            }
 
         }, function (error) {
             console.error("Found claim listener error:", error);
