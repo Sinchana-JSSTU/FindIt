@@ -28,7 +28,6 @@
             <a href="#matches">Possible Matches</a>
             <a href="#chatSection">Chat</a>
 
-            <!-- Notifications Navigation -->
             <a href="#notifications" id="notificationNav">
                 🔔 Notifications
                 <span id="notificationBadge">0</span>
@@ -51,7 +50,6 @@
                 <button id="viewBtn">View All Items</button>
             </div>
         </section>
-
 
         <!-- Report Form -->
         <section id="reportPanel" class="report-panel">
@@ -88,8 +86,16 @@
                 <textarea id="description" required
                     placeholder="Describe the item"></textarea>
 
-                <label for="itemPhoto">Upload Photo</label>
-                <input type="file" id="itemPhoto" accept="image/*">
+                <!-- Photo Upload -->
+                <label for="itemPhoto">
+                    Upload Item Photo (Optional)
+                </label>
+
+                <input
+                    type="file"
+                    id="itemPhoto"
+                    accept="image/*"
+                >
 
                 <button type="submit" id="submitReport">
                     Submit Report
@@ -97,7 +103,6 @@
 
             </form>
         </section>
-
 
         <!-- Recent Items -->
         <section id="recent" class="content-section">
@@ -138,7 +143,6 @@
 
         </section>
 
-
         <!-- Possible Matches -->
         <section id="matches" class="content-section">
 
@@ -150,8 +154,7 @@
 
         </section>
 
-
-        <!-- PRIVATE CHAT -->
+        <!-- Private Chat -->
         <section id="chatSection" class="content-section">
 
             <h2>FindIt Private Chat</h2>
@@ -161,7 +164,6 @@
                 the handover of your item.
             </p>
 
-            <!-- Conversation List -->
             <div id="chatList" class="chat-list">
 
                 <p id="chatEmptyState">
@@ -171,7 +173,6 @@
 
             </div>
 
-            <!-- Chat Window -->
             <div id="chatWindow" class="chat-window" hidden>
 
                 <div class="chat-header">
@@ -184,7 +185,6 @@
                     </p>
                 </div>
 
-                <!-- Messages -->
                 <div id="chatMessages" class="chat-messages">
 
                     <p>
@@ -193,7 +193,6 @@
 
                 </div>
 
-                <!-- Message Form -->
                 <form id="chatForm" class="chat-form">
 
                     <input
@@ -215,8 +214,7 @@
 
         </section>
 
-
-        <!-- NOTIFICATIONS -->
+        <!-- Notifications -->
         <section id="notifications" class="content-section">
 
             <h2>🔔 Notifications</h2>
@@ -237,7 +235,6 @@
 
         </section>
 
-
         <!-- About -->
         <section id="about" class="content-section">
 
@@ -253,12 +250,10 @@
 
     </main>
 
-
     <!-- Footer -->
     <footer>
         <p>© 2026 FindIt | College Lost & Found</p>
     </footer>
-
 
     <!-- Firebase Libraries -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -268,7 +263,6 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
-
 
     <!-- Project JavaScript -->
     <script src="firebase.js"></script>
