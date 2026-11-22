@@ -7,7 +7,10 @@ let currentUser = null;
 const auth = firebase.auth();
 const db = firebase.firestore();
 
-// HTML elements
+// ======================================
+// HTML ELEMENTS
+// ======================================
+
 const lostBtn = document.getElementById("lostBtn");
 const foundBtn = document.getElementById("foundBtn");
 const viewBtn = document.getElementById("viewBtn");
@@ -24,31 +27,203 @@ const searchInput = document.getElementById("searchInput");
 const categoryFilter = document.getElementById("categoryFilter");
 const statusFilter = document.getElementById("statusFilter");
 
-// Claim section
+// ======================================
+// CLAIM SECTION
+// ======================================
+
 let claimContainer = document.getElementById("claimContainer");
 
 if (!claimContainer && matchContainer) {
     claimContainer = document.createElement("div");
     claimContainer.id = "claimContainer";
+
     matchContainer.parentNode.insertBefore(
         claimContainer,
         matchContainer.nextSibling
     );
 }
 
-// Private chat elements
+// ======================================
+// PRIVATE CHAT ELEMENTS
+// ======================================
+
 const chatList = document.getElementById("chatList");
 const chatWindow = document.getElementById("chatWindow");
 const chatHeader = document.getElementById("chatHeader");
 const chatMessages = document.getElementById("chatMessages");
 const chatForm = document.getElementById("chatForm");
 const chatInput = document.getElementById("chatInput");
-const chatEmptyState = document.getElementById("chatEmptyState");
 
 let currentChatId = null;
 let stopMessagesListener = null;
 
-// Open report form
+// ======================================
+// FINDIT NOTIFICATIONS
+// ======================================
+
+const notificationList =
+    document.getElementById("notificationList");
+
+const notificationBadge =
+    document.getElementById("notificationBadge");
+
+let allNotifications = [];
+
+let notificationMessageListeners = {};
+
+let previousClaimStates = {};
+
+let notificationStorageKey = "";
+
+// Load notifications for current user
+function loadNotifications() {
+    if (!currentUser) return;
+
+    notificationStorageKey =
+        "findit_notifications_" + currentUser.uid;
+
+    try {
+        const saved = JSON.parse(
+            localStorage.getItem(notificationStorageKey) || "[]"
+        );
+
+        allNotifications = Array.isArray(saved) ? saved : [];
+
+    } catch (error) {
+        console.error("Notification loading error:", error);
+        allNotifications = [];
+    }
+
+    renderNotifications();
+}
+
+// Save notifications
+function saveNotifications() {
+    if (!currentUser || !notificationStorageKey) return;
+
+    try {
+        localStorage.setItem(
+            notificationStorageKey,
+            JSON.stringify(allNotifications)
+        );
+
+    } catch (error) {
+        console.error("Notification saving error:", error);
+    }
+}
+
+// Add a new notification
+function addNotification(
+    id,
+    title,
+    message,
+    type,
+    claimId = "",
+    time = null
+) {
+    const existing = allNotifications.some(
+        notification => notification.id === id
+    );
+
+    if (existing) return;
+
+    allNotifications.push({
+        id: id,
+        title: title,
+        message: message,
+        type: type,
+        claimId: claimId,
+        timeMs: time?.toDate
+            ? time.toDate().getTime()
+            : Date.now(),
+        read: false
+    });
+
+    saveNotifications();
+    renderNotifications();
+}
+
+// Display notifications
+function renderNotifications() {
+    if (!notificationList) return;
+
+    allNotifications.sort(function (a, b) {
+        return b.timeMs - a.timeMs;
+    });
+
+    notificationList.innerHTML = "";
+
+    if (allNotifications.length === 0) {
+        const empty = document.createElement("p");
+        empty.textContent = "No notifications yet.";
+        notificationList.appendChild(empty);
+    }
+
+    allNotifications.forEach(function (notification) {
+        const card = document.createElement("div");
+
+        card.className =
+            "notification-card " +
+            (notification.read ? "read" : "unread");
+
+        const heading = document.createElement("h3");
+        heading.textContent = notification.title;
+
+        const message = document.createElement("p");
+        message.textContent = notification.message;
+
+        const time = document.createElement("small");
+        time.className = "notification-time";
+
+        time.textContent = new Date(
+            notification.timeMs
+        ).toLocaleString();
+
+        card.append(heading, message, time);
+
+        card.addEventListener("click", function () {
+            notification.read = true;
+
+            saveNotifications();
+            renderNotifications();
+
+            if (notification.type === "chat") {
+                document.getElementById("chatSection")
+                    ?.scrollIntoView({ behavior: "smooth" });
+
+                const claim = allClaims[notification.claimId];
+
+                if (claim) {
+                    openChat(notification.claimId, claim);
+                }
+
+            } else {
+                claimContainer?.scrollIntoView({
+                    behavior: "smooth"
+                });
+            }
+        });
+
+        notificationList.appendChild(card);
+    });
+
+    const unreadCount = allNotifications.filter(
+        notification => !notification.read
+    ).length;
+
+    if (notificationBadge) {
+        notificationBadge.textContent = unreadCount;
+
+        notificationBadge.style.display =
+            unreadCount > 0 ? "inline-flex" : "none";
+    }
+}
+
+// ======================================
+// REPORT FORM
+// ======================================
+
+// Open Lost report form
 if (lostBtn) {
     lostBtn.addEventListener("click", function () {
         reportType = "Lost";
@@ -57,6 +232,7 @@ if (lostBtn) {
     });
 }
 
+// Open Found report form
 if (foundBtn) {
     foundBtn.addEventListener("click", function () {
         reportType = "Found";
@@ -65,20 +241,25 @@ if (foundBtn) {
     });
 }
 
+// Close report form
 if (closePanel) {
     closePanel.addEventListener("click", function () {
         reportPanel.classList.remove("active");
     });
 }
 
+// View recent items
 if (viewBtn) {
     viewBtn.addEventListener("click", function () {
-        document.getElementById("recentItems")
+        document.getElementById("recent")
             ?.scrollIntoView({ behavior: "smooth" });
     });
 }
 
-// Submit report
+// ======================================
+// SUBMIT REPORT
+// ======================================
+
 if (reportForm) {
     reportForm.addEventListener("submit", async function (event) {
         event.preventDefault();
@@ -88,18 +269,33 @@ if (reportForm) {
             return;
         }
 
-        const itemName = document.getElementById("itemName").value.trim();
-        const category = document.getElementById("category").value;
-        const location = document.getElementById("location").value.trim();
-        const itemDate = document.getElementById("itemDate").value;
-        const description = document.getElementById("description").value.trim();
+        const itemName =
+            document.getElementById("itemName").value.trim();
+
+        const category =
+            document.getElementById("category").value;
+
+        const location =
+            document.getElementById("location").value.trim();
+
+        const itemDate =
+            document.getElementById("itemDate").value;
+
+        const description =
+            document.getElementById("description").value.trim();
 
         if (!reportType) {
             alert("Please select Lost or Found first.");
             return;
         }
 
-        if (!itemName || !category || !location || !itemDate || !description) {
+        if (
+            !itemName ||
+            !category ||
+            !location ||
+            !itemDate ||
+            !description
+        ) {
             alert("Please fill in all required fields.");
             return;
         }
@@ -114,7 +310,8 @@ if (reportForm) {
                 status: reportType,
                 ownerUid: currentUser.uid,
                 photoURL: "",
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                createdAt:
+                    firebase.firestore.FieldValue.serverTimestamp()
             });
 
             alert(reportType + " item reported successfully!");
@@ -125,12 +322,18 @@ if (reportForm) {
 
         } catch (error) {
             console.error("Report submission error:", error);
-            alert("Could not submit report: " + error.message);
+
+            alert(
+                "Could not submit report: " + error.message
+            );
         }
     });
 }
 
-// Text similarity
+// ======================================
+// TEXT SIMILARITY
+// ======================================
+
 function normalizeText(text) {
     return String(text || "")
         .toLowerCase()
@@ -158,7 +361,8 @@ function editSimilarity(first, second) {
 
     for (let i = 1; i <= a.length; i++) {
         for (let j = 1; j <= b.length; j++) {
-            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            const cost =
+                a[i - 1] === b[j - 1] ? 0 : 1;
 
             matrix[i][j] = Math.min(
                 matrix[i - 1][j] + 1,
@@ -172,7 +376,7 @@ function editSimilarity(first, second) {
         Math.max(a.length, b.length);
 }
 
-// Simple English phonetic comparison
+// Phonetic comparison
 function soundCode(word) {
     const text = normalizeText(word).replace(/\s/g, "");
 
@@ -193,7 +397,11 @@ function soundCode(word) {
     let result = first;
     let previous = groups[first] || "";
 
-    for (let i = 1; i < text.length && result.length < 4; i++) {
+    for (
+        let i = 1;
+        i < text.length && result.length < 4;
+        i++
+    ) {
         const code = groups[text[i]] || "";
 
         if (code && code !== previous) {
@@ -227,7 +435,10 @@ function nameSimilarity(first, second) {
             if (soundCode(wordA) === soundCode(wordB)) {
                 best = 1;
             } else {
-                best = Math.max(best, editSimilarity(wordA, wordB));
+                best = Math.max(
+                    best,
+                    editSimilarity(wordA, wordB)
+                );
             }
         }
 
@@ -259,8 +470,8 @@ function calculateMatch(lost, found) {
     if (nameScore < 0.30) return null;
 
     const categoryScore =
-        normalizeText(lost.category) === normalizeText(found.category)
-            ? 1 : 0;
+        normalizeText(lost.category) ===
+        normalizeText(found.category) ? 1 : 0;
 
     const locationScore = textSimilarity(
         lost.location,
@@ -286,15 +497,20 @@ function calculateMatch(lost, found) {
     };
 }
 
-// Display recent reports
+// ======================================
+// DISPLAY RECENT REPORTS
+// ======================================
+
 function renderReports() {
     if (!itemContainer) return;
 
-    const search = normalizeText(searchInput?.value || "");
+    const search = normalizeText(
+        searchInput?.value || ""
+    );
+
     const category = categoryFilter?.value || "";
     const status = statusFilter?.value || "";
 
-    // IMPORTANT: Hide returned reports for everyone
     const filtered = allReports.filter(function (report) {
         if (report.returned === true) return false;
 
@@ -329,16 +545,19 @@ function renderReports() {
         statusText.textContent = "Status: " + report.status;
 
         const categoryText = document.createElement("p");
-        categoryText.textContent = "Category: " + report.category;
+        categoryText.textContent =
+            "Category: " + report.category;
 
         const locationText = document.createElement("p");
-        locationText.textContent = "Location: " + report.location;
+        locationText.textContent =
+            "Location: " + report.location;
 
         const dateText = document.createElement("p");
         dateText.textContent = "Date: " + report.itemDate;
 
         const descriptionText = document.createElement("p");
-        descriptionText.textContent = "Description: " + report.description;
+        descriptionText.textContent =
+            "Description: " + report.description;
 
         card.append(
             heading,
@@ -353,7 +572,10 @@ function renderReports() {
     });
 }
 
-// Create claim request
+// ======================================
+// CLAIM REQUEST
+// ======================================
+
 async function createClaimRequest(lost, found) {
     if (!currentUser) {
         alert("Please wait for Firebase connection.");
@@ -388,10 +610,13 @@ async function createClaimRequest(lost, found) {
             lostOwnerApproved: false,
             foundOwnerApproved: false,
             status: "Pending",
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            createdAt:
+                firebase.firestore.FieldValue.serverTimestamp()
         });
 
-        alert("Claim request sent successfully! You can now use Private Chat.");
+        alert(
+            "Claim request sent successfully! You can now use Private Chat."
+        );
 
     } catch (error) {
         console.error("Claim request error:", error);
@@ -404,13 +629,19 @@ async function createClaimRequest(lost, found) {
     }
 }
 
-// Hide both reports after a claim is Returned
+// ======================================
+// HIDE RETURNED REPORTS
+// ======================================
+
 async function hideReturnedReports(claimId, claim) {
-    if (!currentUser || !claim || claim.status !== "Returned") {
+    if (
+        !currentUser ||
+        !claim ||
+        claim.status !== "Returned"
+    ) {
         return;
     }
 
-    // Only claim participants can perform this operation
     if (
         currentUser.uid !== claim.lostOwnerUid &&
         currentUser.uid !== claim.foundOwnerUid
@@ -427,14 +658,15 @@ async function hideReturnedReports(claimId, claim) {
         for (const reportId of reportIds) {
             if (!reportId) continue;
 
-            const reportRef = db.collection("reports").doc(reportId);
+            const reportRef =
+                db.collection("reports").doc(reportId);
+
             const reportSnapshot = await reportRef.get();
 
             if (!reportSnapshot.exists) continue;
 
             const report = reportSnapshot.data();
 
-            // Avoid unnecessary repeated updates
             if (report.returned === true) continue;
 
             await reportRef.update({
@@ -446,16 +678,24 @@ async function hideReturnedReports(claimId, claim) {
         console.log("Returned reports hidden successfully.");
 
     } catch (error) {
-        console.error("Could not hide returned reports:", error);
+        console.error(
+            "Could not hide returned reports:",
+            error
+        );
     }
 }
 
-// Approve claim
+// ======================================
+// APPROVE CLAIM
+// ======================================
+
 async function approveClaim(claimId) {
     if (!currentUser) return;
 
     try {
-        const claimRef = db.collection("claims").doc(claimId);
+        const claimRef =
+            db.collection("claims").doc(claimId);
+
         const snapshot = await claimRef.get();
 
         if (!snapshot.exists) {
@@ -467,6 +707,7 @@ async function approveClaim(claimId) {
 
         if (claim.status === "Returned") {
             alert("This item has already been returned.");
+
             await hideReturnedReports(claimId, claim);
             return;
         }
@@ -486,7 +727,9 @@ async function approveClaim(claimId) {
             updates.foundOwnerApproved = true;
 
         } else {
-            alert("You have already approved this claim or cannot approve it.");
+            alert(
+                "You have already approved this claim or cannot approve it."
+            );
             return;
         }
 
@@ -504,29 +747,40 @@ async function approveClaim(claimId) {
 
         await claimRef.update(updates);
 
-        // If both students approved, hide both reports
         if (updates.status === "Returned") {
             const updatedClaim = {
                 ...claim,
                 ...updates
             };
 
-            await hideReturnedReports(claimId, updatedClaim);
+            await hideReturnedReports(
+                claimId,
+                updatedClaim
+            );
 
             alert(
                 "Both students confirmed! The item is marked as returned, and both reports have been hidden."
             );
+
         } else {
-            alert("Your confirmation has been recorded. Waiting for the other student.");
+            alert(
+                "Your confirmation has been recorded. Waiting for the other student."
+            );
         }
 
     } catch (error) {
         console.error("Claim approval error:", error);
-        alert("Could not update claim: " + error.message);
+
+        alert(
+            "Could not update claim: " + error.message
+        );
     }
 }
 
-// Display claim requests
+// ======================================
+// DISPLAY CLAIM REQUESTS
+// ======================================
+
 function renderClaimRequests() {
     if (!claimContainer || !currentUser) return;
 
@@ -535,7 +789,8 @@ function renderClaimRequests() {
     const claims = Object.entries(allClaims);
 
     if (claims.length === 0) {
-        claimContainer.innerHTML += "<p>No claim requests yet.</p>";
+        claimContainer.innerHTML +=
+            "<p>No claim requests yet.</p>";
         return;
     }
 
@@ -550,16 +805,27 @@ function renderClaimRequests() {
         status.textContent = "Status: " + claim.status;
 
         const lostApproval = document.createElement("p");
+
         lostApproval.textContent =
             "Lost item owner: " +
-            (claim.lostOwnerApproved ? "Approved" : "Waiting");
+            (claim.lostOwnerApproved
+                ? "Approved"
+                : "Waiting");
 
         const foundApproval = document.createElement("p");
+
         foundApproval.textContent =
             "Found item owner: " +
-            (claim.foundOwnerApproved ? "Approved" : "Waiting");
+            (claim.foundOwnerApproved
+                ? "Approved"
+                : "Waiting");
 
-        card.append(heading, status, lostApproval, foundApproval);
+        card.append(
+            heading,
+            status,
+            lostApproval,
+            foundApproval
+        );
 
         if (claim.status !== "Returned") {
             if (
@@ -567,7 +833,9 @@ function renderClaimRequests() {
                 !claim.lostOwnerApproved
             ) {
                 const button = document.createElement("button");
-                button.textContent = "Confirm I Received the Item";
+
+                button.textContent =
+                    "Confirm I Received the Item";
 
                 button.addEventListener("click", function () {
                     approveClaim(claimId);
@@ -581,7 +849,9 @@ function renderClaimRequests() {
                 !claim.foundOwnerApproved
             ) {
                 const button = document.createElement("button");
-                button.textContent = "Confirm I Handed Over the Item";
+
+                button.textContent =
+                    "Confirm I Handed Over the Item";
 
                 button.addEventListener("click", function () {
                     approveClaim(claimId);
@@ -589,8 +859,10 @@ function renderClaimRequests() {
 
                 card.appendChild(button);
             }
+
         } else {
             const completed = document.createElement("p");
+
             completed.textContent =
                 "Both students approved. Item returned!";
 
@@ -615,8 +887,10 @@ function renderChatList() {
 
     if (claims.length === 0) {
         const empty = document.createElement("p");
+
         empty.textContent =
             "Your conversations will appear here after a claim request is sent.";
+
         chatList.appendChild(empty);
         return;
     }
@@ -624,24 +898,27 @@ function renderChatList() {
     claims.sort(function (a, b) {
         const timeA = a[1].createdAt?.seconds || 0;
         const timeB = b[1].createdAt?.seconds || 0;
+
         return timeB - timeA;
     });
 
     claims.forEach(function ([claimId, claim]) {
-        const conversation = document.createElement("button");
+        const conversation =
+            document.createElement("button");
+
         conversation.type = "button";
         conversation.className = "chat-conversation";
 
-        const role = currentUser.uid === claim.lostOwnerUid
-            ? "Lost item owner"
-            : "Found item owner";
+        const role =
+            currentUser.uid === claim.lostOwnerUid
+                ? "the finder"
+                : "the lost item owner";
 
         conversation.textContent =
             "Conversation with " +
-            (role === "Lost item owner"
-                ? "the finder"
-                : "the lost item owner") +
-            " — " + claim.status;
+            role +
+            " — " +
+            claim.status;
 
         conversation.addEventListener("click", function () {
             openChat(claimId, claim);
@@ -653,18 +930,21 @@ function renderChatList() {
 
 // Open a conversation
 function openChat(claimId, claim) {
-    if (!currentUser || !chatWindow || !chatMessages) return;
+    if (!currentUser || !chatWindow || !chatMessages) {
+        return;
+    }
 
     if (
         currentUser.uid !== claim.lostOwnerUid &&
         currentUser.uid !== claim.foundOwnerUid
     ) {
-        alert("You are not allowed to open this conversation.");
+        alert(
+            "You are not allowed to open this conversation."
+        );
         return;
     }
 
     currentChatId = claimId;
-
     chatWindow.hidden = false;
 
     if (chatHeader) {
@@ -674,7 +954,8 @@ function openChat(claimId, claim) {
                 : "Chat with the lost item owner";
     }
 
-    chatMessages.innerHTML = "<p>Loading messages...</p>";
+    chatMessages.innerHTML =
+        "<p>Loading messages...</p>";
 
     updateChatStatus(claim);
 
@@ -699,22 +980,29 @@ function openChat(claimId, claim) {
             snapshot.forEach(function (doc) {
                 const message = doc.data();
 
-                const messageBox = document.createElement("div");
+                const messageBox =
+                    document.createElement("div");
 
                 messageBox.className =
                     "chat-message " +
-                    (message.senderUid === currentUser.uid
-                        ? "my-message"
-                        : "other-message");
+                    (
+                        message.senderUid === currentUser.uid
+                            ? "my-message"
+                            : "other-message"
+                    );
 
-                const messageText = document.createElement("p");
+                const messageText =
+                    document.createElement("p");
+
                 messageText.textContent = message.text;
 
-                const timeText = document.createElement("small");
+                const timeText =
+                    document.createElement("small");
 
                 if (message.createdAt?.toDate) {
                     timeText.textContent =
-                        message.createdAt.toDate().toLocaleString();
+                        message.createdAt.toDate()
+                            .toLocaleString();
                 } else {
                     timeText.textContent = "Sending...";
                 }
@@ -723,28 +1011,35 @@ function openChat(claimId, claim) {
                 chatMessages.appendChild(messageBox);
             });
 
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+            chatMessages.scrollTop =
+                chatMessages.scrollHeight;
 
         }, function (error) {
             console.error("Chat loading error:", error);
+
             chatMessages.textContent =
                 "Could not load messages: " + error.message;
         });
 }
 
-// Enable or disable chat based on claim status
+// Enable or disable chat
 function updateChatStatus(claim) {
     if (!chatForm || !chatInput) return;
 
-    const returned = claim.status === "Returned";
+    const returned =
+        claim.status === "Returned";
 
     chatInput.disabled = returned;
 
-    const button = chatForm.querySelector("button[type='submit']");
+    const button = chatForm.querySelector(
+        "button[type='submit']"
+    );
 
     if (button) {
         button.disabled = returned;
-        button.textContent = returned ? "Chat Closed" : "Send";
+
+        button.textContent =
+            returned ? "Chat Closed" : "Send";
     }
 
     chatInput.placeholder = returned
@@ -770,7 +1065,9 @@ if (chatForm) {
 
         if (!claim || claim.status !== "Pending") {
             alert("This conversation is closed.");
-            updateChatStatus(claim || {});
+
+            if (claim) updateChatStatus(claim);
+
             return;
         }
 
@@ -778,11 +1075,15 @@ if (chatForm) {
             currentUser.uid !== claim.lostOwnerUid &&
             currentUser.uid !== claim.foundOwnerUid
         ) {
-            alert("You cannot send messages in this conversation.");
+            alert(
+                "You cannot send messages in this conversation."
+            );
             return;
         }
 
-        const button = chatForm.querySelector("button[type='submit']");
+        const button = chatForm.querySelector(
+            "button[type='submit']"
+        );
 
         try {
             if (button) button.disabled = true;
@@ -793,14 +1094,18 @@ if (chatForm) {
                 .add({
                     senderUid: currentUser.uid,
                     text: text,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    createdAt:
+                        firebase.firestore.FieldValue.serverTimestamp()
                 });
 
             chatInput.value = "";
 
         } catch (error) {
             console.error("Message sending error:", error);
-            alert("Could not send message: " + error.message);
+
+            alert(
+                "Could not send message: " + error.message
+            );
 
         } finally {
             if (button && claim.status === "Pending") {
@@ -810,7 +1115,196 @@ if (chatForm) {
     });
 }
 
-// Listen for claim requests
+// ======================================
+// NOTIFICATION: NEW CHAT MESSAGES
+// ======================================
+
+// Listen for new messages in each claim
+function startNotificationMessageListener(claimId) {
+    if (notificationMessageListeners[claimId]) {
+        return;
+    }
+
+    let firstSnapshot = true;
+
+    const stopListener = db.collection("claims")
+        .doc(claimId)
+        .collection("messages")
+        .orderBy("createdAt", "asc")
+        .onSnapshot(function (snapshot) {
+
+            // Do not notify about old messages
+            // when the listener first starts
+            if (firstSnapshot) {
+                firstSnapshot = false;
+                return;
+            }
+
+            snapshot.docChanges().forEach(function (change) {
+                if (change.type !== "added") return;
+
+                const message = change.doc.data();
+
+                // Do not notify the sender about their own message
+                if (message.senderUid === currentUser.uid) {
+                    return;
+                }
+
+                const preview =
+                    String(message.text || "").slice(0, 100);
+
+                addNotification(
+                    "message-" + claimId + "-" + change.doc.id,
+                    "New Chat Message",
+                    preview,
+                    "chat",
+                    claimId,
+                    message.createdAt
+                );
+            });
+
+        }, function (error) {
+            console.error(
+                "Notification message listener error:",
+                error
+            );
+        });
+
+    notificationMessageListeners[claimId] = stopListener;
+}
+
+// ======================================
+// NOTIFICATION: CLAIM EVENTS
+// ======================================
+
+function processClaimNotifications(claimId, claim) {
+    if (!currentUser) return;
+
+    const previous = previousClaimStates[claimId];
+
+    // First time this claim is loaded on this device
+    if (!previous) {
+
+        // Notify the Finder about a pending new claim
+        if (
+            currentUser.uid === claim.foundOwnerUid &&
+            claim.status === "Pending"
+        ) {
+            addNotification(
+                "claim-request-" + claimId,
+                "New Claim Request",
+                "A student has sent a claim request for your Found item.",
+                "claim",
+                claimId,
+                claim.createdAt
+            );
+        }
+
+        // Show an approval notification if the other
+        // student had already approved while this user was away
+        if (
+            claim.lostOwnerApproved &&
+            currentUser.uid === claim.foundOwnerUid
+        ) {
+            addNotification(
+                "claim-approval-" + claimId + "-lost",
+                "Claim Approved",
+                "The Lost item owner has confirmed receiving the item.",
+                "claim",
+                claimId,
+                claim.createdAt
+            );
+        }
+
+        if (
+            claim.foundOwnerApproved &&
+            currentUser.uid === claim.lostOwnerUid
+        ) {
+            addNotification(
+                "claim-approval-" + claimId + "-found",
+                "Claim Approved",
+                "The Finder has confirmed handing over the item.",
+                "claim",
+                claimId,
+                claim.createdAt
+            );
+        }
+
+        if (claim.status === "Returned") {
+            addNotification(
+                "claim-returned-" + claimId,
+                "Item Returned",
+                "Both students confirmed. The item has been marked as returned.",
+                "claim",
+                claimId,
+                claim.createdAt
+            );
+        }
+
+        previousClaimStates[claimId] = {
+            lostOwnerApproved: claim.lostOwnerApproved,
+            foundOwnerApproved: claim.foundOwnerApproved,
+            status: claim.status
+        };
+
+        return;
+    }
+
+    // Lost owner approved
+    if (
+        !previous.lostOwnerApproved &&
+        claim.lostOwnerApproved &&
+        currentUser.uid === claim.foundOwnerUid
+    ) {
+        addNotification(
+            "claim-approval-" + claimId + "-lost",
+            "Claim Approved",
+            "The Lost item owner has confirmed receiving the item.",
+            "claim",
+            claimId
+        );
+    }
+
+    // Finder approved
+    if (
+        !previous.foundOwnerApproved &&
+        claim.foundOwnerApproved &&
+        currentUser.uid === claim.lostOwnerUid
+    ) {
+        addNotification(
+            "claim-approval-" + claimId + "-found",
+            "Claim Approved",
+            "The Finder has confirmed handing over the item.",
+            "claim",
+            claimId
+        );
+    }
+
+    // Both students confirmed the return
+    if (
+        previous.status !== "Returned" &&
+        claim.status === "Returned"
+    ) {
+        addNotification(
+            "claim-returned-" + claimId,
+            "Item Returned",
+            "Both students confirmed. The item has been marked as returned.",
+            "claim",
+            claimId
+        );
+    }
+
+    previousClaimStates[claimId] = {
+        lostOwnerApproved: claim.lostOwnerApproved,
+        foundOwnerApproved: claim.foundOwnerApproved,
+        status: claim.status
+    };
+}
+
+// ======================================
+// LISTEN FOR CLAIM REQUESTS
+// ======================================
+
 let stopLostClaims = null;
 let stopFoundClaims = null;
 
@@ -818,64 +1312,95 @@ function listenToClaims(user) {
     if (stopLostClaims) stopLostClaims();
     if (stopFoundClaims) stopFoundClaims();
 
+    Object.values(notificationMessageListeners).forEach(
+        function (stopListener) {
+            stopListener();
+        }
+    );
+
+    notificationMessageListeners = {};
+    previousClaimStates = {};
     allClaims = {};
 
+    // Claims where current user is Lost owner
     stopLostClaims = db.collection("claims")
         .where("lostOwnerUid", "==", user.uid)
         .onSnapshot(function (snapshot) {
-            snapshot.forEach(function (doc) {
-                allClaims[doc.id] = doc.data();
-            });
-
-            renderClaimRequests();
-            renderChatList();
-            findMatches();
 
             snapshot.forEach(function (doc) {
                 const claim = doc.data();
+
+                allClaims[doc.id] = claim;
+
+                processClaimNotifications(doc.id, claim);
+
+                startNotificationMessageListener(doc.id);
 
                 if (claim.status === "Returned") {
                     hideReturnedReports(doc.id, claim);
                 }
             });
 
-            if (currentChatId && allClaims[currentChatId]) {
+            renderClaimRequests();
+            renderChatList();
+            findMatches();
+
+            if (
+                currentChatId &&
+                allClaims[currentChatId]
+            ) {
                 updateChatStatus(allClaims[currentChatId]);
             }
 
         }, function (error) {
-            console.error("Lost claim listener error:", error);
+            console.error(
+                "Lost claim listener error:",
+                error
+            );
         });
 
+    // Claims where current user is Found owner
     stopFoundClaims = db.collection("claims")
         .where("foundOwnerUid", "==", user.uid)
         .onSnapshot(function (snapshot) {
-            snapshot.forEach(function (doc) {
-                allClaims[doc.id] = doc.data();
-            });
-
-            renderClaimRequests();
-            renderChatList();
-            findMatches();
 
             snapshot.forEach(function (doc) {
                 const claim = doc.data();
+
+                allClaims[doc.id] = claim;
+
+                processClaimNotifications(doc.id, claim);
+
+                startNotificationMessageListener(doc.id);
 
                 if (claim.status === "Returned") {
                     hideReturnedReports(doc.id, claim);
                 }
             });
 
-            if (currentChatId && allClaims[currentChatId]) {
+            renderClaimRequests();
+            renderChatList();
+            findMatches();
+
+            if (
+                currentChatId &&
+                allClaims[currentChatId]
+            ) {
                 updateChatStatus(allClaims[currentChatId]);
             }
 
         }, function (error) {
-            console.error("Found claim listener error:", error);
+            console.error(
+                "Found claim listener error:",
+                error
+            );
         });
 }
 
-// Find possible matches
+// ======================================
+// FIND POSSIBLE MATCHES
+// ======================================
+
 function findMatches() {
     if (!matchContainer) return;
 
@@ -883,9 +1408,9 @@ function findMatches() {
 
     const heading = document.createElement("h2");
     heading.textContent = "Possible Matches";
+
     matchContainer.appendChild(heading);
 
-    // Exclude reports already returned
     const activeReports = allReports.filter(
         report => report.returned !== true
     );
@@ -902,16 +1427,22 @@ function findMatches() {
 
     lostReports.forEach(function (lost) {
         foundReports.forEach(function (found) {
-            if (lost.ownerUid === found.ownerUid) return;
+
+            if (lost.ownerUid === found.ownerUid) {
+                return;
+            }
 
             const result = calculateMatch(lost, found);
 
             if (!result) return;
 
             const claimId = lost.id + "_" + found.id;
+
             const existingClaim = allClaims[claimId];
 
-            if (existingClaim?.status === "Returned") return;
+            if (existingClaim?.status === "Returned") {
+                return;
+            }
 
             matches.push({
                 lost: lost,
@@ -925,11 +1456,16 @@ function findMatches() {
         });
     });
 
-    matches.sort((a, b) => b.newest - a.newest);
+    matches.sort(function (a, b) {
+        return b.newest - a.newest;
+    });
 
     if (matches.length === 0) {
         const message = document.createElement("p");
-        message.textContent = "No possible matches found yet.";
+
+        message.textContent =
+            "No possible matches found yet.";
+
         matchContainer.appendChild(message);
         return;
     }
@@ -939,33 +1475,50 @@ function findMatches() {
         card.className = "item-card";
 
         const heading = document.createElement("h3");
+
         heading.textContent =
             "Possible Match: " +
-            match.lost.itemName + " / " + match.found.itemName;
+            match.lost.itemName +
+            " / " +
+            match.found.itemName;
 
         const nameScore = document.createElement("p");
+
         nameScore.textContent =
-            "Name Similarity: " + match.result.name + "%";
+            "Name Similarity: " +
+            match.result.name +
+            "%";
 
         const overallScore = document.createElement("p");
+
         overallScore.textContent =
-            "Overall Match: " + match.result.total + "%";
+            "Overall Match: " +
+            match.result.total +
+            "%";
 
         const lostLocation = document.createElement("p");
+
         lostLocation.textContent =
-            "Lost Location: " + match.lost.location;
+            "Lost Location: " +
+            match.lost.location;
 
         const foundLocation = document.createElement("p");
+
         foundLocation.textContent =
-            "Found Location: " + match.found.location;
+            "Found Location: " +
+            match.found.location;
 
         const lostDescription = document.createElement("p");
+
         lostDescription.textContent =
-            "Lost Description: " + match.lost.description;
+            "Lost Description: " +
+            match.lost.description;
 
         const foundDescription = document.createElement("p");
+
         foundDescription.textContent =
-            "Found Description: " + match.found.description;
+            "Found Description: " +
+            match.found.description;
 
         card.append(
             heading,
@@ -977,12 +1530,19 @@ function findMatches() {
             foundDescription
         );
 
-        if (currentUser && match.lost.ownerUid === currentUser.uid) {
+        if (
+            currentUser &&
+            match.lost.ownerUid === currentUser.uid
+        ) {
             const button = document.createElement("button");
+
             button.textContent = "Send Claim Request";
 
             button.addEventListener("click", function () {
-                createClaimRequest(match.lost, match.found);
+                createClaimRequest(
+                    match.lost,
+                    match.found
+                );
             });
 
             card.appendChild(button);
@@ -992,6 +1552,7 @@ function findMatches() {
             match.found.ownerUid === currentUser.uid
         ) {
             const message = document.createElement("p");
+
             message.textContent =
                 "Waiting for the Lost item owner to send a claim request.";
 
@@ -1002,19 +1563,24 @@ function findMatches() {
     });
 }
 
-// Listen for reports
+// ======================================
+// LISTEN FOR REPORTS
+// ======================================
+
 let stopReports = null;
 
 function listenToReports() {
     if (stopReports) stopReports();
 
     if (itemContainer) {
-        itemContainer.innerHTML = "<p>Loading items...</p>";
+        itemContainer.innerHTML =
+            "<p>Loading items...</p>";
     }
 
     stopReports = db.collection("reports")
         .orderBy("createdAt", "desc")
         .onSnapshot(function (snapshot) {
+
             allReports = [];
 
             snapshot.forEach(function (doc) {
@@ -1028,7 +1594,10 @@ function listenToReports() {
             findMatches();
 
         }, function (error) {
-            console.error("Firestore reports loading error:", error);
+            console.error(
+                "Firestore reports loading error:",
+                error
+            );
 
             if (itemContainer) {
                 itemContainer.innerHTML =
@@ -1039,26 +1608,49 @@ function listenToReports() {
         });
 }
 
-// Search and filters
+// ======================================
+// SEARCH AND FILTERS
+// ======================================
+
 if (searchInput) {
-    searchInput.addEventListener("input", renderReports);
+    searchInput.addEventListener(
+        "input",
+        renderReports
+    );
 }
 
 if (categoryFilter) {
-    categoryFilter.addEventListener("change", renderReports);
+    categoryFilter.addEventListener(
+        "change",
+        renderReports
+    );
 }
 
 if (statusFilter) {
-    statusFilter.addEventListener("change", renderReports);
+    statusFilter.addEventListener(
+        "change",
+        renderReports
+    );
 }
 
-// Firebase authentication
+// ======================================
+// FIREBASE AUTHENTICATION
+// ======================================
+
 auth.onAuthStateChanged(function (user) {
+
     if (user) {
         currentUser = user;
 
-        console.log("FindIt connected. User:", user.uid);
+        console.log(
+            "FindIt connected. User:",
+            user.uid
+        );
 
+        // Load this student's saved notifications
+        loadNotifications();
+
+        // Listen for reports and claims
         listenToReports();
         listenToClaims(user);
 
@@ -1066,11 +1658,16 @@ auth.onAuthStateChanged(function (user) {
         currentUser = null;
 
         auth.signInAnonymously().catch(function (error) {
-            console.error("Anonymous login error:", error);
+            console.error(
+                "Anonymous login error:",
+                error
+            );
 
             if (itemContainer) {
                 itemContainer.innerHTML =
-                    "<p>Login failed: " + error.message + "</p>";
+                    "<p>Login failed: " +
+                    error.message +
+                    "</p>";
             }
         });
     }
