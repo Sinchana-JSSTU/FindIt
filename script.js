@@ -98,13 +98,11 @@ let readNotificationIds = [];
 // ======================================
 
 async function loadNotifications() {
-
     if (!currentUser) return;
 
     const uid = currentUser.uid;
 
-    notificationStorageKey =
-        "findit_notifications_" + uid;
+    notificationStorageKey = "findit_notifications_" + uid;
 
     try {
         const saved = JSON.parse(
@@ -119,7 +117,6 @@ async function loadNotifications() {
     }
 
     try {
-
         const snapshot = await db
             .collection("notificationSettings")
             .doc(uid)
@@ -127,9 +124,7 @@ async function loadNotifications() {
 
         if (!currentUser || currentUser.uid !== uid) return;
 
-        const settings = snapshot.exists
-            ? snapshot.data()
-            : {};
+        const settings = snapshot.exists ? snapshot.data() : {};
 
         const firestoreReadIds =
             Array.isArray(settings.readNotificationIds)
@@ -167,7 +162,6 @@ async function loadNotifications() {
 // ======================================
 
 function saveNotifications() {
-
     if (!currentUser || !notificationStorageKey) return;
 
     if (
@@ -176,12 +170,10 @@ function saveNotifications() {
     ) return;
 
     try {
-
         localStorage.setItem(
             notificationStorageKey,
             JSON.stringify(allNotifications)
         );
-
     } catch (error) {
         console.error("Notification saving error:", error);
     }
@@ -192,13 +184,11 @@ function saveNotifications() {
 // ======================================
 
 async function saveNotificationReadState() {
-
     if (!currentUser) return;
 
     const uid = currentUser.uid;
 
     try {
-
         readNotificationIds = [
             ...new Set(readNotificationIds)
         ].slice(-500);
@@ -233,7 +223,6 @@ function addNotification(
     claimId = "",
     time = null
 ) {
-
     if (!currentUser) return;
 
     if (
@@ -263,25 +252,18 @@ function addNotification(
 // ======================================
 
 function renderNotifications() {
-
     if (!notificationList) return;
 
-    allNotifications.sort(
-        (a, b) => b.timeMs - a.timeMs
-    );
-
+    allNotifications.sort((a, b) => b.timeMs - a.timeMs);
     notificationList.innerHTML = "";
 
     if (allNotifications.length === 0) {
-
         const empty = document.createElement("p");
         empty.textContent = "No notifications yet.";
-
         notificationList.appendChild(empty);
     }
 
     allNotifications.forEach(function (notification) {
-
         const card = document.createElement("div");
 
         card.className =
@@ -296,7 +278,6 @@ function renderNotifications() {
 
         const time = document.createElement("small");
         time.className = "notification-time";
-
         time.textContent = new Date(
             notification.timeMs
         ).toLocaleString();
@@ -304,9 +285,7 @@ function renderNotifications() {
         card.append(heading, message, time);
 
         card.addEventListener("click", async function () {
-
             if (!notification.read) {
-
                 notification.read = true;
 
                 if (!readNotificationIds.includes(notification.id)) {
@@ -315,12 +294,10 @@ function renderNotifications() {
 
                 saveNotifications();
                 renderNotifications();
-
                 await saveNotificationReadState();
             }
 
             if (notification.type === "chat") {
-
                 document.getElementById("chatSection")
                     ?.scrollIntoView({ behavior: "smooth" });
 
@@ -329,9 +306,7 @@ function renderNotifications() {
                 if (claim) {
                     openChat(notification.claimId, claim);
                 }
-
             } else {
-
                 claimContainer?.scrollIntoView({
                     behavior: "smooth"
                 });
@@ -346,9 +321,7 @@ function renderNotifications() {
     ).length;
 
     if (notificationBadge) {
-
         notificationBadge.textContent = unreadCount;
-
         notificationBadge.style.display =
             unreadCount > 0 ? "inline-flex" : "none";
     }
@@ -359,7 +332,6 @@ function renderNotifications() {
 // ======================================
 
 function validatePhoto(file) {
-
     if (!file) return true;
 
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
@@ -380,7 +352,6 @@ function validatePhoto(file) {
 // ======================================
 
 async function uploadPhotoToCloudinary(file) {
-
     if (!file) return "";
 
     const formData = new FormData();
@@ -401,7 +372,6 @@ async function uploadPhotoToCloudinary(file) {
     const result = await response.json();
 
     if (!response.ok) {
-
         console.error("Cloudinary error:", result);
 
         throw new Error(
@@ -421,7 +391,6 @@ async function uploadPhotoToCloudinary(file) {
 // ======================================
 
 function createPhotoElement(photoURL) {
-
     if (!photoURL) return null;
 
     const image = document.createElement("img");
@@ -450,9 +419,7 @@ function createPhotoElement(photoURL) {
 // ======================================
 
 if (lostBtn) {
-
     lostBtn.addEventListener("click", function () {
-
         reportType = "Lost";
 
         if (formTitle) {
@@ -464,9 +431,7 @@ if (lostBtn) {
 }
 
 if (foundBtn) {
-
     foundBtn.addEventListener("click", function () {
-
         reportType = "Found";
 
         if (formTitle) {
@@ -478,16 +443,13 @@ if (foundBtn) {
 }
 
 if (closePanel) {
-
     closePanel.addEventListener("click", function () {
         reportPanel?.classList.remove("active");
     });
 }
 
 if (viewBtn) {
-
     viewBtn.addEventListener("click", function () {
-
         document.getElementById("recent")
             ?.scrollIntoView({ behavior: "smooth" });
     });
@@ -498,9 +460,7 @@ if (viewBtn) {
 // ======================================
 
 if (reportForm) {
-
     reportForm.addEventListener("submit", async function (event) {
-
         event.preventDefault();
 
         if (!currentUser) {
@@ -544,7 +504,6 @@ if (reportForm) {
         if (!validatePhoto(selectedFile)) return;
 
         try {
-
             if (submitReport) {
                 submitReport.disabled = true;
                 submitReport.textContent = selectedFile
@@ -564,19 +523,17 @@ if (reportForm) {
             }
 
             await db.collection("reports").add({
-
-    itemName: itemName,
-    category: category,
-    location: location,
-    itemDate: itemDate,
-    description: description,
-    status: reportType,
-    ownerUid: currentUser.uid,
-    photoURL: photoURL,
-
-    createdAt:
-        firebase.firestore.FieldValue.serverTimestamp()
-});
+                itemName: itemName,
+                category: category,
+                location: location,
+                itemDate: itemDate,
+                description: description,
+                status: reportType,
+                ownerUid: currentUser.uid,
+                photoURL: photoURL,
+                createdAt:
+                    firebase.firestore.FieldValue.serverTimestamp()
+            });
 
             alert(reportType + " item reported successfully!");
 
@@ -585,7 +542,6 @@ if (reportForm) {
             reportType = "";
 
         } catch (error) {
-
             console.error("Report submission error:", error);
 
             alert(
@@ -593,7 +549,6 @@ if (reportForm) {
             );
 
         } finally {
-
             if (submitReport) {
                 submitReport.disabled = false;
                 submitReport.textContent = "Submit Report";
@@ -607,7 +562,6 @@ if (reportForm) {
 // ======================================
 
 function normalizeText(text) {
-
     return String(text || "")
         .toLowerCase()
         .trim()
@@ -616,7 +570,6 @@ function normalizeText(text) {
 }
 
 function editSimilarity(first, second) {
-
     const a = normalizeText(first);
     const b = normalizeText(second);
 
@@ -634,9 +587,7 @@ function editSimilarity(first, second) {
     }
 
     for (let i = 1; i <= a.length; i++) {
-
         for (let j = 1; j <= b.length; j++) {
-
             const cost =
                 a[i - 1] === b[j - 1] ? 0 : 1;
 
@@ -654,7 +605,6 @@ function editSimilarity(first, second) {
 }
 
 function soundCode(word) {
-
     const text = normalizeText(word).replace(/\s/g, "");
 
     if (!text) return "";
@@ -679,7 +629,6 @@ function soundCode(word) {
         i < text.length && result.length < 4;
         i++
     ) {
-
         const code = groups[text[i]] || "";
 
         if (code && code !== previous) {
@@ -693,7 +642,6 @@ function soundCode(word) {
 }
 
 function nameSimilarity(first, second) {
-
     const a = normalizeText(first);
     const b = normalizeText(second);
 
@@ -708,11 +656,9 @@ function nameSimilarity(first, second) {
     let phonetic = 0;
 
     for (const wordA of firstWords) {
-
         let best = 0;
 
         for (const wordB of secondWords) {
-
             if (soundCode(wordA) === soundCode(wordB)) {
                 best = 1;
             } else {
@@ -735,7 +681,6 @@ function nameSimilarity(first, second) {
 }
 
 function textSimilarity(first, second) {
-
     const a = normalizeText(first);
     const b = normalizeText(second);
 
@@ -750,9 +695,7 @@ function textSimilarity(first, second) {
 // ======================================
 
 async function getPhotoSimilarity(lostPhotoURL, foundPhotoURL) {
-
     if (!lostPhotoURL || !foundPhotoURL) {
-
         return {
             score: 0,
             reason: "One or both photos are missing.",
@@ -775,9 +718,7 @@ async function getPhotoSimilarity(lostPhotoURL, foundPhotoURL) {
     }
 
     const request = (async function () {
-
         try {
-
             const response = await fetch(
                 PHOTO_MATCHER_WORKER_URL,
                 {
@@ -818,7 +759,6 @@ async function getPhotoSimilarity(lostPhotoURL, foundPhotoURL) {
             return result;
 
         } catch (error) {
-
             console.error("Gemini photo matching error:", error);
 
             return {
@@ -829,10 +769,8 @@ async function getPhotoSimilarity(lostPhotoURL, foundPhotoURL) {
             };
 
         } finally {
-
             photoSimilarityRequests.delete(cacheKey);
         }
-
     })();
 
     photoSimilarityRequests.set(cacheKey, request);
@@ -845,7 +783,6 @@ async function getPhotoSimilarity(lostPhotoURL, foundPhotoURL) {
 // ======================================
 
 function calculateMatch(lost, found, photoScore = 0) {
-
     const nameScore = nameSimilarity(
         lost.itemName,
         found.itemName
@@ -885,13 +822,11 @@ function calculateMatch(lost, found, photoScore = 0) {
     return {
         name: Math.round(nameScore * 100),
         photo: Math.round(photoScore),
-
         namePoints: Number(namePoints.toFixed(1)),
         photoPoints: Number(photoPoints.toFixed(1)),
         categoryPoints: Number(categoryPoints.toFixed(1)),
         locationPoints: Number(locationPoints.toFixed(1)),
         descriptionPoints: Number(descriptionPoints.toFixed(1)),
-
         total: Math.round(total)
     };
 }
@@ -901,7 +836,6 @@ function calculateMatch(lost, found, photoScore = 0) {
 // ======================================
 
 function renderReports() {
-
     if (!itemContainer) return;
 
     const search = normalizeText(searchInput?.value || "");
@@ -909,7 +843,6 @@ function renderReports() {
     const status = statusFilter?.value || "";
 
     const filtered = allReports.filter(function (report) {
-
         if (report.returned === true) return false;
 
         const searchableText = normalizeText(
@@ -933,7 +866,6 @@ function renderReports() {
     itemContainer.innerHTML = "";
 
     filtered.forEach(function (report) {
-
         const card = document.createElement("div");
         card.className = "item-card";
 
@@ -978,9 +910,7 @@ function renderReports() {
 // CLAIM REQUEST
 // ======================================
 
-
 async function createClaimRequest(lost, found) {
-
     if (!currentUser) {
         alert("Please wait for Firebase connection.");
         return;
@@ -1004,10 +934,18 @@ async function createClaimRequest(lost, found) {
     const claimId = lost.id + "_" + found.id;
     const claimRef = db.collection("claims").doc(claimId);
 
+    // Check the claims already loaded by the claim listeners.
+    if (allClaims[claimId]) {
+        alert("A claim request already exists for this match.");
+        return;
+    }
+
     try {
+        // Do not call claimRef.get() here.
+        // A read of a claim that does not exist can be denied
+        // by rules that only allow claim participants to read it.
 
         await claimRef.set({
-
             lostReportId: lost.id,
             foundReportId: found.id,
 
@@ -1028,7 +966,6 @@ async function createClaimRequest(lost, found) {
         alert("Claim request sent successfully!");
 
     } catch (error) {
-
         console.error("Claim request error:", error);
 
         alert(
@@ -1037,13 +974,11 @@ async function createClaimRequest(lost, found) {
     }
 }
 
-
 // ======================================
 // HIDE RETURNED REPORTS
 // ======================================
 
 async function hideReturnedReports(claimId, claim) {
-
     if (
         !currentUser ||
         !claim ||
@@ -1056,14 +991,12 @@ async function hideReturnedReports(claimId, claim) {
     ) return;
 
     try {
-
         const reportIds = [
             claim.lostReportId,
             claim.foundReportId
         ];
 
         for (const reportId of reportIds) {
-
             if (!reportId) continue;
 
             const reportRef =
@@ -1086,7 +1019,6 @@ async function hideReturnedReports(claimId, claim) {
         console.log("Returned reports hidden successfully.");
 
     } catch (error) {
-
         console.error("Could not hide returned reports:", error);
     }
 }
@@ -1096,11 +1028,9 @@ async function hideReturnedReports(claimId, claim) {
 // ======================================
 
 async function approveClaim(claimId) {
-
     if (!currentUser) return;
 
     try {
-
         const claimRef =
             db.collection("claims").doc(claimId);
 
@@ -1124,19 +1054,18 @@ async function approveClaim(claimId) {
             currentUser.uid === claim.lostOwnerUid &&
             !claim.lostOwnerApproved
         ) {
-
             updates.lostOwnerApproved = true;
 
         } else if (
             currentUser.uid === claim.foundOwnerUid &&
             !claim.foundOwnerApproved
         ) {
-
             updates.foundOwnerApproved = true;
 
         } else {
-
-            alert("You have already approved this claim or cannot approve it.");
+            alert(
+                "You have already approved this claim or cannot approve it."
+            );
             return;
         }
 
@@ -1155,7 +1084,6 @@ async function approveClaim(claimId) {
         await claimRef.update(updates);
 
         if (updates.status === "Returned") {
-
             const updatedClaim = {
                 ...claim,
                 ...updates
@@ -1168,14 +1096,12 @@ async function approveClaim(claimId) {
             );
 
         } else {
-
             alert(
                 "Your confirmation has been recorded. Waiting for the other student."
             );
         }
 
     } catch (error) {
-
         console.error("Claim approval error:", error);
         alert("Could not update claim: " + error.message);
     }
@@ -1186,7 +1112,6 @@ async function approveClaim(claimId) {
 // ======================================
 
 function renderClaimRequests() {
-
     if (!claimContainer || !currentUser) return;
 
     claimContainer.innerHTML = "<h2>Claim Requests</h2>";
@@ -1194,15 +1119,12 @@ function renderClaimRequests() {
     const claims = Object.entries(allClaims);
 
     if (claims.length === 0) {
-
         claimContainer.innerHTML +=
             "<p>No claim requests yet.</p>";
-
         return;
     }
 
     claims.forEach(function ([claimId, claim]) {
-
         const card = document.createElement("div");
         card.className = "item-card";
 
@@ -1230,14 +1152,11 @@ function renderClaimRequests() {
         );
 
         if (claim.status !== "Returned") {
-
             if (
                 currentUser.uid === claim.lostOwnerUid &&
                 !claim.lostOwnerApproved
             ) {
-
                 const button = document.createElement("button");
-
                 button.textContent =
                     "Confirm I Received the Item";
 
@@ -1252,9 +1171,7 @@ function renderClaimRequests() {
                 currentUser.uid === claim.foundOwnerUid &&
                 !claim.foundOwnerApproved
             ) {
-
                 const button = document.createElement("button");
-
                 button.textContent =
                     "Confirm I Handed Over the Item";
 
@@ -1266,9 +1183,7 @@ function renderClaimRequests() {
             }
 
         } else {
-
             const completed = document.createElement("p");
-
             completed.textContent =
                 "Both students approved. Item returned!";
 
@@ -1284,7 +1199,6 @@ function renderClaimRequests() {
 // ======================================
 
 function renderChatList() {
-
     if (!chatList || !currentUser) return;
 
     chatList.innerHTML = "";
@@ -1292,7 +1206,6 @@ function renderChatList() {
     const claims = Object.entries(allClaims);
 
     if (claims.length === 0) {
-
         const empty = document.createElement("p");
 
         empty.textContent =
@@ -1303,7 +1216,6 @@ function renderChatList() {
     }
 
     claims.sort(function (a, b) {
-
         const timeA = a[1].createdAt?.seconds || 0;
         const timeB = b[1].createdAt?.seconds || 0;
 
@@ -1311,7 +1223,6 @@ function renderChatList() {
     });
 
     claims.forEach(function ([claimId, claim]) {
-
         const conversation = document.createElement("button");
 
         conversation.type = "button";
@@ -1338,14 +1249,12 @@ function renderChatList() {
 // ======================================
 
 function openChat(claimId, claim) {
-
     if (!currentUser || !chatWindow || !chatMessages) return;
 
     if (
         currentUser.uid !== claim.lostOwnerUid &&
         currentUser.uid !== claim.foundOwnerUid
     ) {
-
         alert("You are not allowed to open this conversation.");
         return;
     }
@@ -1354,7 +1263,6 @@ function openChat(claimId, claim) {
     chatWindow.hidden = false;
 
     if (chatHeader) {
-
         chatHeader.textContent =
             currentUser.uid === claim.lostOwnerUid
                 ? "Chat with the finder"
@@ -1375,19 +1283,15 @@ function openChat(claimId, claim) {
         .collection("messages")
         .orderBy("createdAt", "asc")
         .onSnapshot(function (snapshot) {
-
             chatMessages.innerHTML = "";
 
             if (snapshot.empty) {
-
                 chatMessages.innerHTML =
                     "<p>No messages yet. Start the conversation!</p>";
-
                 return;
             }
 
             snapshot.forEach(function (doc) {
-
                 const message = doc.data();
 
                 const messageBox = document.createElement("div");
@@ -1410,14 +1314,12 @@ function openChat(claimId, claim) {
                     : "Sending...";
 
                 messageBox.append(messageText, timeText);
-
                 chatMessages.appendChild(messageBox);
             });
 
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
         }, function (error) {
-
             console.error("Chat loading error:", error);
 
             chatMessages.textContent =
@@ -1430,7 +1332,6 @@ function openChat(claimId, claim) {
 // ======================================
 
 function updateChatStatus(claim) {
-
     if (!chatForm || !chatInput) return;
 
     const returned = claim.status === "Returned";
@@ -1442,12 +1343,8 @@ function updateChatStatus(claim) {
     );
 
     if (button) {
-
         button.disabled = returned;
-
-        button.textContent = returned
-            ? "Chat Closed"
-            : "Send";
+        button.textContent = returned ? "Chat Closed" : "Send";
     }
 
     chatInput.placeholder = returned
@@ -1460,9 +1357,7 @@ function updateChatStatus(claim) {
 // ======================================
 
 if (chatForm) {
-
     chatForm.addEventListener("submit", async function (event) {
-
         event.preventDefault();
 
         if (!currentUser || !currentChatId) {
@@ -1470,18 +1365,16 @@ if (chatForm) {
             return;
         }
 
-        const text = chatInput.value.trim();
+        const messageText = chatInput.value.trim();
 
-        if (!text) return;
+        if (!messageText) return;
 
         const claim = allClaims[currentChatId];
 
         if (!claim || claim.status !== "Pending") {
-
             alert("This conversation is closed.");
 
             if (claim) updateChatStatus(claim);
-
             return;
         }
 
@@ -1489,7 +1382,6 @@ if (chatForm) {
             currentUser.uid !== claim.lostOwnerUid &&
             currentUser.uid !== claim.foundOwnerUid
         ) {
-
             alert("You cannot send messages in this conversation.");
             return;
         }
@@ -1499,17 +1391,14 @@ if (chatForm) {
         );
 
         try {
-
             if (button) button.disabled = true;
 
             await db.collection("claims")
                 .doc(currentChatId)
                 .collection("messages")
                 .add({
-
                     senderUid: currentUser.uid,
-                    text: text,
-
+                    text: messageText,
                     createdAt:
                         firebase.firestore.FieldValue.serverTimestamp()
                 });
@@ -1517,13 +1406,10 @@ if (chatForm) {
             chatInput.value = "";
 
         } catch (error) {
-
             console.error("Message sending error:", error);
-
             alert("Could not send message: " + error.message);
 
         } finally {
-
             if (
                 button &&
                 allClaims[currentChatId]?.status === "Pending"
@@ -1539,7 +1425,6 @@ if (chatForm) {
 // ======================================
 
 function startNotificationMessageListener(claimId) {
-
     if (notificationMessageListeners[claimId]) return;
 
     let firstSnapshot = true;
@@ -1549,14 +1434,12 @@ function startNotificationMessageListener(claimId) {
         .collection("messages")
         .orderBy("createdAt", "asc")
         .onSnapshot(function (snapshot) {
-
             if (firstSnapshot) {
                 firstSnapshot = false;
                 return;
             }
 
             snapshot.docChanges().forEach(function (change) {
-
                 if (change.type !== "added") return;
 
                 const message = change.doc.data();
@@ -1579,7 +1462,6 @@ function startNotificationMessageListener(claimId) {
             });
 
         }, function (error) {
-
             console.error(
                 "Notification message listener error:",
                 error
@@ -1594,18 +1476,15 @@ function startNotificationMessageListener(claimId) {
 // ======================================
 
 function processClaimNotifications(claimId, claim) {
-
     if (!currentUser) return;
 
     const previous = previousClaimStates[claimId];
 
     if (!previous) {
-
         if (
             currentUser.uid === claim.foundOwnerUid &&
             claim.status === "Pending"
         ) {
-
             addNotification(
                 "claim-request-" + claimId,
                 "New Claim Request",
@@ -1620,7 +1499,6 @@ function processClaimNotifications(claimId, claim) {
             claim.lostOwnerApproved &&
             currentUser.uid === claim.foundOwnerUid
         ) {
-
             addNotification(
                 "claim-approval-" + claimId + "-lost",
                 "Claim Approved",
@@ -1635,7 +1513,6 @@ function processClaimNotifications(claimId, claim) {
             claim.foundOwnerApproved &&
             currentUser.uid === claim.lostOwnerUid
         ) {
-
             addNotification(
                 "claim-approval-" + claimId + "-found",
                 "Claim Approved",
@@ -1647,7 +1524,6 @@ function processClaimNotifications(claimId, claim) {
         }
 
         if (claim.status === "Returned") {
-
             addNotification(
                 "claim-returned-" + claimId,
                 "Item Returned",
@@ -1672,7 +1548,6 @@ function processClaimNotifications(claimId, claim) {
         claim.lostOwnerApproved &&
         currentUser.uid === claim.foundOwnerUid
     ) {
-
         addNotification(
             "claim-approval-" + claimId + "-lost",
             "Claim Approved",
@@ -1687,7 +1562,6 @@ function processClaimNotifications(claimId, claim) {
         claim.foundOwnerApproved &&
         currentUser.uid === claim.lostOwnerUid
     ) {
-
         addNotification(
             "claim-approval-" + claimId + "-found",
             "Claim Approved",
@@ -1701,7 +1575,6 @@ function processClaimNotifications(claimId, claim) {
         previous.status !== "Returned" &&
         claim.status === "Returned"
     ) {
-
         addNotification(
             "claim-returned-" + claimId,
             "Item Returned",
@@ -1726,7 +1599,6 @@ let stopLostClaims = null;
 let stopFoundClaims = null;
 
 function listenToClaims(user) {
-
     if (stopLostClaims) stopLostClaims();
     if (stopFoundClaims) stopFoundClaims();
 
@@ -1743,9 +1615,7 @@ function listenToClaims(user) {
     stopLostClaims = db.collection("claims")
         .where("lostOwnerUid", "==", user.uid)
         .onSnapshot(function (snapshot) {
-
             snapshot.forEach(function (doc) {
-
                 const claim = doc.data();
 
                 allClaims[doc.id] = claim;
@@ -1767,16 +1637,13 @@ function listenToClaims(user) {
             }
 
         }, function (error) {
-
             console.error("Lost claim listener error:", error);
         });
 
     stopFoundClaims = db.collection("claims")
         .where("foundOwnerUid", "==", user.uid)
         .onSnapshot(function (snapshot) {
-
             snapshot.forEach(function (doc) {
-
                 const claim = doc.data();
 
                 allClaims[doc.id] = claim;
@@ -1798,7 +1665,6 @@ function listenToClaims(user) {
             }
 
         }, function (error) {
-
             console.error("Found claim listener error:", error);
         });
 }
@@ -1808,7 +1674,6 @@ function listenToClaims(user) {
 // ======================================
 
 async function findMatches() {
-
     if (!matchContainer) return;
 
     const renderVersion = ++matchRenderVersion;
@@ -1835,9 +1700,7 @@ async function findMatches() {
     const possiblePairs = [];
 
     lostReports.forEach(function (lost) {
-
         foundReports.forEach(function (found) {
-
             if (lost.ownerUid === found.ownerUid) return;
 
             const nameScore = nameSimilarity(
@@ -1861,26 +1724,21 @@ async function findMatches() {
     });
 
     if (possiblePairs.length === 0) {
-
         const message = document.createElement("p");
-
-        message.textContent =
-            "No possible matches found yet.";
+        message.textContent = "No possible matches found yet.";
 
         matchContainer.appendChild(message);
         return;
     }
 
     const loading = document.createElement("p");
-
-    loading.textContent =
-        "Comparing item photos with AI...";
+    loading.textContent = "Comparing item photos with AI...";
 
     matchContainer.appendChild(loading);
 
+    // Compare all possible pairs.
     const results = await Promise.all(
         possiblePairs.map(async function (pair) {
-
             const photoResult = await getPhotoSimilarity(
                 pair.lost.photoURL,
                 pair.found.photoURL
@@ -1895,12 +1753,11 @@ async function findMatches() {
             if (!result) return null;
 
             return {
-
                 lost: pair.lost,
                 found: pair.found,
+                claimId: pair.claimId,
                 result: result,
                 photoResult: photoResult,
-
                 newest: Math.max(
                     pair.lost.createdAt?.seconds || 0,
                     pair.found.createdAt?.seconds || 0
@@ -1909,6 +1766,7 @@ async function findMatches() {
         })
     );
 
+    // Ignore an old matching operation if a newer one started.
     if (renderVersion !== matchRenderVersion) return;
 
     matchContainer.innerHTML = "";
@@ -1921,18 +1779,14 @@ async function findMatches() {
     });
 
     if (matches.length === 0) {
-
         const message = document.createElement("p");
-
-        message.textContent =
-            "No possible matches found yet.";
+        message.textContent = "No possible matches found yet.";
 
         matchContainer.appendChild(message);
         return;
     }
 
     matches.forEach(function (match) {
-
         const card = document.createElement("div");
         card.className = "item-card";
 
@@ -1993,13 +1847,10 @@ async function findMatches() {
         const photoStatus = document.createElement("p");
 
         if (match.photoResult.available) {
-
             photoStatus.textContent =
                 "AI Photo Analysis: " +
                 match.photoResult.reason;
-
         } else {
-
             photoStatus.textContent =
                 "AI Photo Analysis unavailable: " +
                 match.photoResult.reason;
@@ -2022,7 +1873,6 @@ async function findMatches() {
         );
 
         if (lostPhoto) {
-
             const label = document.createElement("p");
             label.textContent = "Lost item photo:";
 
@@ -2034,7 +1884,6 @@ async function findMatches() {
         );
 
         if (foundPhoto) {
-
             const label = document.createElement("p");
             label.textContent = "Found item photo:";
 
@@ -2072,7 +1921,6 @@ async function findMatches() {
             currentUser &&
             match.lost.ownerUid === currentUser.uid
         ) {
-
             const button = document.createElement("button");
 
             button.textContent = "Send Claim Request";
@@ -2082,11 +1930,11 @@ async function findMatches() {
 
             if (existingClaim) {
                 button.disabled = true;
-                button.textContent = "Claim Request Already Sent";
+                button.textContent =
+                    "Claim Request Already Sent";
             }
 
             button.addEventListener("click", function () {
-
                 createClaimRequest(
                     match.lost,
                     match.found
@@ -2099,7 +1947,6 @@ async function findMatches() {
             currentUser &&
             match.found.ownerUid === currentUser.uid
         ) {
-
             const message = document.createElement("p");
 
             message.textContent =
@@ -2119,7 +1966,6 @@ async function findMatches() {
 let stopReports = null;
 
 function listenToReports() {
-
     if (stopReports) stopReports();
 
     if (itemContainer) {
@@ -2129,11 +1975,9 @@ function listenToReports() {
     stopReports = db.collection("reports")
         .orderBy("createdAt", "desc")
         .onSnapshot(function (snapshot) {
-
             allReports = [];
 
             snapshot.forEach(function (doc) {
-
                 allReports.push({
                     id: doc.id,
                     ...doc.data()
@@ -2144,14 +1988,12 @@ function listenToReports() {
             findMatches();
 
         }, function (error) {
-
             console.error(
                 "Firestore reports loading error:",
                 error
             );
 
             if (itemContainer) {
-
                 itemContainer.innerHTML =
                     "<p>Could not load items: " +
                     error.message +
@@ -2181,11 +2023,8 @@ if (statusFilter) {
 // ======================================
 
 auth.onAuthStateChanged(async function (user) {
-
     if (user) {
-
         if (currentUser?.uid !== user.uid) {
-
             currentUser = user;
 
             allNotifications = [];
@@ -2219,15 +2058,12 @@ auth.onAuthStateChanged(async function (user) {
         );
 
     } else {
-
         currentUser = null;
 
         auth.signInAnonymously().catch(function (error) {
-
             console.error("Anonymous login error:", error);
 
             if (itemContainer) {
-
                 itemContainer.innerHTML =
                     "<p>Login failed: " +
                     error.message +
