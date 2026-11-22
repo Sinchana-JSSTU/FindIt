@@ -7,6 +7,26 @@ let currentUser = null;
 const auth = firebase.auth();
 const db = firebase.firestore();
 
+const CLOUDINARY_CLOUD_NAME = "vxcdf9jy";
+const CLOUDINARY_UPLOAD_PRESET = "findit_upload";
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+
+const ALLOWED_IMAGE_TYPES = [
+    "image/jpeg",
+    "image/png",
+    "image/webp"
+];
+
+// Gemini photo matching Worker
+const PHOTO_MATCHER_WORKER_URL =
+    "https://findit-photo-matcher.sinchanasd420.workers.dev";
+
+// Cache successful photo comparisons
+const photoSimilarityCache = new Map();
+const photoSimilarityRequests = new Map();
+
+let matchRenderVersion = 0;
+
 // ======================================
 // HTML ELEMENTS
 // ======================================
@@ -19,6 +39,8 @@ const reportPanel = document.getElementById("reportPanel");
 const closePanel = document.getElementById("closePanel");
 const formTitle = document.getElementById("formTitle");
 const reportForm = document.getElementById("reportForm");
+const itemPhoto = document.getElementById("itemPhoto");
+const submitReport = document.getElementById("submitReport");
 
 const itemContainer = document.getElementById("itemContainer");
 const matchContainer = document.getElementById("matchContainer");
@@ -58,7 +80,7 @@ let currentChatId = null;
 let stopMessagesListener = null;
 
 // ======================================
-// FINDIT NOTIFICATIONS
+// NOTIFICATIONS
 // ======================================
 
 const notificationList =
@@ -131,7 +153,7 @@ async function loadNotifications() {
 }
 
 // ======================================
-// SAVE NOTIFICATIONS LOCALLY
+// SAVE NOTIFICATIONS
 // ======================================
 
 function saveNotifications() {
@@ -296,7 +318,95 @@ function renderNotifications() {
 }
 
 // ======================================
-// REPORT FORM
+// CLOUDINARY IMAGE VALIDATION
+// ======================================
+
+function validatePhoto(file) {
+    if (!file) return true;
+
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+        alert("Please select a JPG, PNG or WEBP image.");
+        return false;
+    }
+
+    if (file.size > MAX_IMAGE_SIZE) {
+        alert("Photo size must be 5 MB or less.");
+        return false;
+    }
+
+    return true;
+}
+
+// ======================================
+// UPLOAD PHOTO TO CLOUDINARY
+// ======================================
+
+async function uploadPhotoToCloudinary(file) {
+    if (!file) return "";
+
+    const formData = new FormData();
+
+    formData.append("file", file);
+    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+
+    const uploadURL =
+        "https://api.cloudinary.com/v1_1/" +
+        CLOUDINARY_CLOUD_NAME +
+        "/image/upload";
+
+    const response = await fetch(uploadURL, {
+        method: "POST",
+        body: formData
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+        console.error("Cloudinary error:", result);
+
+        throw new Error(
+            result.error?.message ||
+            "Photo upload failed."
+        );
+    }
+
+    if (!result.secure_url) {
+        throw new Error("Cloudinary did not return a photo URL.");
+    }
+
+    return result.secure_url;
+}
+
+// ======================================
+// DISPLAY ITEM PHOTO
+// ======================================
+
+function createPhotoElement(photoURL) {
+    if (!photoURL) return null;
+
+    const image = document.createElement("img");
+
+    image.src = photoURL;
+    image.alt = "Uploaded item photo";
+    image.loading = "lazy";
+
+    image.style.width = "100%";
+    image.style.maxWidth = "300px";
+    image.style.maxHeight = "220px";
+    image.style.objectFit = "contain";
+    image.style.borderRadius = "10px";
+    image.style.marginBottom = "12px";
+
+    image.onerror = function () {
+        image.alt = "Photo could not be loaded";
+        image.style.display = "none";
+    };
+
+    return image;
+}
+
+// ======================================
+// REPORT FORM BUTTONS
 // ======================================
 
 if (lostBtn) {
@@ -337,7 +447,7 @@ if (viewBtn) {
 }
 
 // ======================================
-// SUBMIT REPORT
+// SUBMIT REPORT WITH CLOUDINARY PHOTO
 // ======================================
 
 if (reportForm) {
@@ -364,6 +474,8 @@ if (reportForm) {
         const description =
             document.getElementById("description").value.trim();
 
+        const selectedFile = itemPhoto?.files?.[0] || null;
+
         if (!reportType) {
             alert("Please select Lost or Found first.");
             return;
@@ -380,7 +492,29 @@ if (reportForm) {
             return;
         }
 
+        if (!validatePhoto(selectedFile)) {
+            return;
+        }
+
         try {
+            if (submitReport) {
+                submitReport.disabled = true;
+                submitReport.textContent = selectedFile
+                    ? "Uploading Photo..."
+                    : "Submitting...";
+            }
+
+            let photoURL = "";
+
+            if (selectedFile) {
+                photoURL =
+                    await uploadPhotoToCloudinary(selectedFile);
+            }
+
+            if (submitReport) {
+                submitReport.textContent = "Saving Report...";
+            }
+
             await db.collection("reports").add({
                 itemName: itemName,
                 category: category,
@@ -389,7 +523,7 @@ if (reportForm) {
                 description: description,
                 status: reportType,
                 ownerUid: currentUser.uid,
-                photoURL: "",
+                photoURL: photoURL,
                 createdAt:
                     firebase.firestore.FieldValue.serverTimestamp()
             });
@@ -402,7 +536,16 @@ if (reportForm) {
 
         } catch (error) {
             console.error("Report submission error:", error);
-            alert("Could not submit report: " + error.message);
+
+            alert(
+                "Could not submit report: " + error.message
+            );
+
+        } finally {
+            if (submitReport) {
+                submitReport.disabled = false;
+                submitReport.textContent = "Submit Report";
+            }
         }
     });
 }
@@ -537,7 +680,110 @@ function textSimilarity(first, second) {
     return editSimilarity(a, b);
 }
 
-function calculateMatch(lost, found) {
+// ======================================
+// GEMINI PHOTO SIMILARITY
+// ======================================
+
+async function getPhotoSimilarity(lostPhotoURL, foundPhotoURL) {
+
+    if (!lostPhotoURL || !foundPhotoURL) {
+        return {
+            score: 0,
+            reason: "One or both photos are missing.",
+            confidence: "low",
+            available: false
+        };
+    }
+
+    const cacheKey = [
+        lostPhotoURL,
+        foundPhotoURL
+    ].sort().join("|");
+
+    if (photoSimilarityCache.has(cacheKey)) {
+        return photoSimilarityCache.get(cacheKey);
+    }
+
+    if (photoSimilarityRequests.has(cacheKey)) {
+        return photoSimilarityRequests.get(cacheKey);
+    }
+
+    const request = (async function () {
+
+        try {
+            const response = await fetch(
+                PHOTO_MATCHER_WORKER_URL,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        lostPhotoURL: lostPhotoURL,
+                        foundPhotoURL: foundPhotoURL
+                    })
+                }
+            );
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(
+                    data.error || "Photo comparison failed."
+                );
+            }
+
+            const score = Math.max(
+                0,
+                Math.min(100, Number(data.photoScore))
+            );
+
+            if (!Number.isFinite(score)) {
+                throw new Error("Invalid photo score.");
+            }
+
+            const result = {
+                score: score,
+                reason: data.reason || "",
+                confidence: data.confidence || "low",
+                available: true
+            };
+
+            photoSimilarityCache.set(cacheKey, result);
+
+            return result;
+
+        } catch (error) {
+
+            console.error(
+                "Gemini photo matching error:",
+                error
+            );
+
+            return {
+                score: 0,
+                reason: error.message,
+                confidence: "low",
+                available: false
+            };
+
+        } finally {
+            photoSimilarityRequests.delete(cacheKey);
+        }
+
+    })();
+
+    photoSimilarityRequests.set(cacheKey, request);
+
+    return request;
+}
+
+// ======================================
+// CALCULATE MATCH SCORE
+// ======================================
+
+function calculateMatch(lost, found, photoScore = 0) {
+
     const nameScore = nameSimilarity(
         lost.itemName,
         found.itemName
@@ -559,16 +805,45 @@ function calculateMatch(lost, found) {
         found.description
     );
 
+    // NAME: 50 POINTS
+
+    const namePoints = nameScore * 50;
+
+    // PHOTO: 20 POINTS
+
+    const photoPoints = (photoScore / 100) * 20;
+
+    // CATEGORY: 10 POINTS
+
+    const categoryPoints = categoryScore * 10;
+
+    // LOCATION: 10 POINTS
+
+    const locationPoints = locationScore * 10;
+
+    // DESCRIPTION: 10 POINTS
+
+    const descriptionPoints = descriptionScore * 10;
+
     const total =
-        nameScore * 70 +
-        categoryScore * 10 +
-        locationScore * 10 +
-        descriptionScore * 10;
+        namePoints +
+        photoPoints +
+        categoryPoints +
+        locationPoints +
+        descriptionPoints;
 
     if (total < 20) return null;
 
     return {
         name: Math.round(nameScore * 100),
+        photo: Math.round(photoScore),
+
+        namePoints: Number(namePoints.toFixed(1)),
+        photoPoints: Number(photoPoints.toFixed(1)),
+        categoryPoints: Number(categoryPoints.toFixed(1)),
+        locationPoints: Number(locationPoints.toFixed(1)),
+        descriptionPoints: Number(descriptionPoints.toFixed(1)),
+
         total: Math.round(total)
     };
 }
@@ -614,6 +889,8 @@ function renderReports() {
         const heading = document.createElement("h3");
         heading.textContent = report.itemName;
 
+        const photo = createPhotoElement(report.photoURL);
+
         const statusText = document.createElement("p");
         statusText.textContent = "Status: " + report.status;
 
@@ -630,8 +907,11 @@ function renderReports() {
         descriptionText.textContent =
             "Description: " + report.description;
 
+        card.appendChild(heading);
+
+        if (photo) card.appendChild(photo);
+
         card.append(
-            heading,
             statusText,
             categoryText,
             locationText,
@@ -648,6 +928,7 @@ function renderReports() {
 // ======================================
 
 async function createClaimRequest(lost, found) {
+
     if (!currentUser) {
         alert("Please wait for Firebase connection.");
         return;
@@ -705,6 +986,7 @@ async function createClaimRequest(lost, found) {
 // ======================================
 
 async function hideReturnedReports(claimId, claim) {
+
     if (
         !currentUser ||
         !claim ||
@@ -758,6 +1040,7 @@ async function hideReturnedReports(claimId, claim) {
 // ======================================
 
 async function approveClaim(claimId) {
+
     if (!currentUser) return;
 
     try {
@@ -815,6 +1098,7 @@ async function approveClaim(claimId) {
         await claimRef.update(updates);
 
         if (updates.status === "Returned") {
+
             const updatedClaim = {
                 ...claim,
                 ...updates
@@ -843,6 +1127,7 @@ async function approveClaim(claimId) {
 // ======================================
 
 function renderClaimRequests() {
+
     if (!claimContainer || !currentUser) return;
 
     claimContainer.innerHTML = "<h2>Claim Requests</h2>";
@@ -856,6 +1141,7 @@ function renderClaimRequests() {
     }
 
     claims.forEach(function ([claimId, claim]) {
+
         const card = document.createElement("div");
         card.className = "item-card";
 
@@ -883,6 +1169,7 @@ function renderClaimRequests() {
         );
 
         if (claim.status !== "Returned") {
+
             if (
                 currentUser.uid === claim.lostOwnerUid &&
                 !claim.lostOwnerApproved
@@ -930,6 +1217,7 @@ function renderClaimRequests() {
 // ======================================
 
 function renderChatList() {
+
     if (!chatList || !currentUser) return;
 
     chatList.innerHTML = "";
@@ -954,6 +1242,7 @@ function renderChatList() {
     });
 
     claims.forEach(function ([claimId, claim]) {
+
         const conversation = document.createElement("button");
 
         conversation.type = "button";
@@ -980,6 +1269,7 @@ function renderChatList() {
 // ======================================
 
 function openChat(claimId, claim) {
+
     if (!currentUser || !chatWindow || !chatMessages) {
         return;
     }
@@ -1016,6 +1306,7 @@ function openChat(claimId, claim) {
         .collection("messages")
         .orderBy("createdAt", "asc")
         .onSnapshot(function (snapshot) {
+
             chatMessages.innerHTML = "";
 
             if (snapshot.empty) {
@@ -1025,6 +1316,7 @@ function openChat(claimId, claim) {
             }
 
             snapshot.forEach(function (doc) {
+
                 const message = doc.data();
 
                 const messageBox = document.createElement("div");
@@ -1056,7 +1348,9 @@ function openChat(claimId, claim) {
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
         }, function (error) {
+
             console.error("Chat loading error:", error);
+
             chatMessages.textContent =
                 "Could not load messages: " + error.message;
         });
@@ -1067,6 +1361,7 @@ function openChat(claimId, claim) {
 // ======================================
 
 function updateChatStatus(claim) {
+
     if (!chatForm || !chatInput) return;
 
     const returned = claim.status === "Returned";
@@ -1092,7 +1387,9 @@ function updateChatStatus(claim) {
 // ======================================
 
 if (chatForm) {
+
     chatForm.addEventListener("submit", async function (event) {
+
         event.preventDefault();
 
         if (!currentUser || !currentChatId) {
@@ -1126,6 +1423,7 @@ if (chatForm) {
         );
 
         try {
+
             if (button) button.disabled = true;
 
             await db.collection("claims")
@@ -1141,10 +1439,12 @@ if (chatForm) {
             chatInput.value = "";
 
         } catch (error) {
+
             console.error("Message sending error:", error);
             alert("Could not send message: " + error.message);
 
         } finally {
+
             if (button && claim.status === "Pending") {
                 button.disabled = false;
             }
@@ -1157,6 +1457,7 @@ if (chatForm) {
 // ======================================
 
 function startNotificationMessageListener(claimId) {
+
     if (notificationMessageListeners[claimId]) {
         return;
     }
@@ -1175,6 +1476,7 @@ function startNotificationMessageListener(claimId) {
             }
 
             snapshot.docChanges().forEach(function (change) {
+
                 if (change.type !== "added") return;
 
                 const message = change.doc.data();
@@ -1197,6 +1499,7 @@ function startNotificationMessageListener(claimId) {
             });
 
         }, function (error) {
+
             console.error(
                 "Notification message listener error:",
                 error
@@ -1211,6 +1514,7 @@ function startNotificationMessageListener(claimId) {
 // ======================================
 
 function processClaimNotifications(claimId, claim) {
+
     if (!currentUser) return;
 
     const previous = previousClaimStates[claimId];
@@ -1335,6 +1639,7 @@ let stopLostClaims = null;
 let stopFoundClaims = null;
 
 function listenToClaims(user) {
+
     if (stopLostClaims) stopLostClaims();
     if (stopFoundClaims) stopFoundClaims();
 
@@ -1348,12 +1653,12 @@ function listenToClaims(user) {
     previousClaimStates = {};
     allClaims = {};
 
-    // Claims where current user is Lost owner
     stopLostClaims = db.collection("claims")
         .where("lostOwnerUid", "==", user.uid)
         .onSnapshot(function (snapshot) {
 
             snapshot.forEach(function (doc) {
+
                 const claim = doc.data();
 
                 allClaims[doc.id] = claim;
@@ -1378,15 +1683,16 @@ function listenToClaims(user) {
             }
 
         }, function (error) {
+
             console.error("Lost claim listener error:", error);
         });
 
-    // Claims where current user is Found owner
     stopFoundClaims = db.collection("claims")
         .where("foundOwnerUid", "==", user.uid)
         .onSnapshot(function (snapshot) {
 
             snapshot.forEach(function (doc) {
+
                 const claim = doc.data();
 
                 allClaims[doc.id] = claim;
@@ -1411,6 +1717,7 @@ function listenToClaims(user) {
             }
 
         }, function (error) {
+
             console.error("Found claim listener error:", error);
         });
 }
@@ -1419,8 +1726,11 @@ function listenToClaims(user) {
 // FIND POSSIBLE MATCHES
 // ======================================
 
-function findMatches() {
+async function findMatches() {
+
     if (!matchContainer) return;
+
+    const renderVersion = ++matchRenderVersion;
 
     matchContainer.innerHTML = "";
 
@@ -1441,86 +1751,232 @@ function findMatches() {
         report => report.status === "Found"
     );
 
-    const matches = [];
+    const possiblePairs = [];
 
     lostReports.forEach(function (lost) {
+
         foundReports.forEach(function (found) {
 
             if (lost.ownerUid === found.ownerUid) return;
 
-            const result = calculateMatch(lost, found);
+            const nameScore = nameSimilarity(
+                lost.itemName,
+                found.itemName
+            );
 
-            if (!result) return;
+            if (nameScore < 0.30) return;
 
             const claimId = lost.id + "_" + found.id;
             const existingClaim = allClaims[claimId];
 
             if (existingClaim?.status === "Returned") return;
 
-            matches.push({
+            possiblePairs.push({
                 lost: lost,
                 found: found,
-                result: result,
-                newest: Math.max(
-                    lost.createdAt?.seconds || 0,
-                    found.createdAt?.seconds || 0
-                )
+                claimId: claimId
             });
         });
     });
 
+    if (possiblePairs.length === 0) {
+
+        const message = document.createElement("p");
+        message.textContent = "No possible matches found yet.";
+
+        matchContainer.appendChild(message);
+        return;
+    }
+
+    const loading = document.createElement("p");
+    loading.textContent = "Comparing item photos with AI...";
+
+    matchContainer.appendChild(loading);
+
+    const results = await Promise.all(
+        possiblePairs.map(async function (pair) {
+
+            const photoResult = await getPhotoSimilarity(
+                pair.lost.photoURL,
+                pair.found.photoURL
+            );
+
+            const result = calculateMatch(
+                pair.lost,
+                pair.found,
+                photoResult.score
+            );
+
+            if (!result) return null;
+
+            return {
+                lost: pair.lost,
+                found: pair.found,
+                result: result,
+                photoResult: photoResult,
+
+                newest: Math.max(
+                    pair.lost.createdAt?.seconds || 0,
+                    pair.found.createdAt?.seconds || 0
+                )
+            };
+        })
+    );
+
+    // Ignore older rendering operations.
+    if (renderVersion !== matchRenderVersion) return;
+
+    matchContainer.innerHTML = "";
+    matchContainer.appendChild(heading);
+
+    const matches = results.filter(Boolean);
+
     matches.sort(function (a, b) {
-        return b.newest - a.newest;
+        return b.result.total - a.result.total;
     });
 
     if (matches.length === 0) {
+
         const message = document.createElement("p");
         message.textContent = "No possible matches found yet.";
+
         matchContainer.appendChild(message);
         return;
     }
 
     matches.forEach(function (match) {
+
         const card = document.createElement("div");
         card.className = "item-card";
 
-        const heading = document.createElement("h3");
-        heading.textContent =
+        const title = document.createElement("h3");
+
+        title.textContent =
             "Possible Match: " +
             match.lost.itemName +
             " / " +
             match.found.itemName;
 
         const nameScore = document.createElement("p");
-        nameScore.textContent =
-            "Name Similarity: " + match.result.name + "%";
 
-        const overallScore = document.createElement("p");
+        nameScore.textContent =
+            "Name Similarity: " +
+            match.result.name +
+            "% (" +
+            match.result.namePoints +
+            "/50 points)";
+
+        const photoScore = document.createElement("p");
+
+        photoScore.textContent =
+            "Photo Similarity: " +
+            match.result.photo +
+            "% (" +
+            match.result.photoPoints +
+            "/20 points)";
+
+        const categoryScore = document.createElement("p");
+
+        categoryScore.textContent =
+            "Category: " +
+            match.result.categoryPoints +
+            "/10 points";
+
+        const locationScore = document.createElement("p");
+
+        locationScore.textContent =
+            "Location: " +
+            match.result.locationPoints +
+            "/10 points";
+
+        const descriptionScore = document.createElement("p");
+
+        descriptionScore.textContent =
+            "Description: " +
+            match.result.descriptionPoints +
+            "/10 points";
+
+        const overallScore = document.createElement("h3");
+
         overallScore.textContent =
-            "Overall Match: " + match.result.total + "%";
+            "Overall Match: " +
+            match.result.total +
+            "%";
+
+        const photoStatus = document.createElement("p");
+
+        if (match.photoResult.available) {
+
+            photoStatus.textContent =
+                "AI Photo Analysis: " +
+                match.photoResult.reason;
+
+        } else {
+
+            photoStatus.textContent =
+                "AI Photo Analysis unavailable: " +
+                match.photoResult.reason;
+        }
 
         const lostLocation = document.createElement("p");
+
         lostLocation.textContent =
             "Lost Location: " + match.lost.location;
 
         const foundLocation = document.createElement("p");
+
         foundLocation.textContent =
             "Found Location: " + match.found.location;
 
+        card.appendChild(title);
+
+        const lostPhoto = createPhotoElement(
+            match.lost.photoURL
+        );
+
+        if (lostPhoto) {
+
+            const label = document.createElement("p");
+            label.textContent = "Lost item photo:";
+
+            card.append(label, lostPhoto);
+        }
+
+        const foundPhoto = createPhotoElement(
+            match.found.photoURL
+        );
+
+        if (foundPhoto) {
+
+            const label = document.createElement("p");
+            label.textContent = "Found item photo:";
+
+            card.append(label, foundPhoto);
+        }
+
+        card.append(
+            nameScore,
+            photoScore,
+            categoryScore,
+            locationScore,
+            descriptionScore,
+            overallScore,
+            photoStatus,
+            lostLocation,
+            foundLocation
+        );
+
         const lostDescription = document.createElement("p");
+
         lostDescription.textContent =
             "Lost Description: " + match.lost.description;
 
         const foundDescription = document.createElement("p");
+
         foundDescription.textContent =
             "Found Description: " + match.found.description;
 
         card.append(
-            heading,
-            nameScore,
-            overallScore,
-            lostLocation,
-            foundLocation,
             lostDescription,
             foundDescription
         );
@@ -1529,11 +1985,17 @@ function findMatches() {
             currentUser &&
             match.lost.ownerUid === currentUser.uid
         ) {
+
             const button = document.createElement("button");
+
             button.textContent = "Send Claim Request";
 
             button.addEventListener("click", function () {
-                createClaimRequest(match.lost, match.found);
+
+                createClaimRequest(
+                    match.lost,
+                    match.found
+                );
             });
 
             card.appendChild(button);
@@ -1542,7 +2004,9 @@ function findMatches() {
             currentUser &&
             match.found.ownerUid === currentUser.uid
         ) {
+
             const message = document.createElement("p");
+
             message.textContent =
                 "Waiting for the Lost item owner to send a claim request.";
 
@@ -1560,6 +2024,7 @@ function findMatches() {
 let stopReports = null;
 
 function listenToReports() {
+
     if (stopReports) stopReports();
 
     if (itemContainer) {
@@ -1573,6 +2038,7 @@ function listenToReports() {
             allReports = [];
 
             snapshot.forEach(function (doc) {
+
                 allReports.push({
                     id: doc.id,
                     ...doc.data()
@@ -1583,12 +2049,14 @@ function listenToReports() {
             findMatches();
 
         }, function (error) {
+
             console.error(
                 "Firestore reports loading error:",
                 error
             );
 
             if (itemContainer) {
+
                 itemContainer.innerHTML =
                     "<p>Could not load items: " +
                     error.message +
@@ -1620,6 +2088,7 @@ if (statusFilter) {
 auth.onAuthStateChanged(async function (user) {
 
     if (user) {
+
         currentUser = user;
 
         console.log(
@@ -1627,20 +2096,21 @@ auth.onAuthStateChanged(async function (user) {
             user.uid
         );
 
-        // Load notifications and read status
         await loadNotifications();
 
-        // Start reports and claim listeners
         listenToReports();
         listenToClaims(user);
 
     } else {
+
         currentUser = null;
 
         auth.signInAnonymously().catch(function (error) {
+
             console.error("Anonymous login error:", error);
 
             if (itemContainer) {
+
                 itemContainer.innerHTML =
                     "<p>Login failed: " +
                     error.message +
