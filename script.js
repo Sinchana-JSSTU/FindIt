@@ -978,6 +978,7 @@ function renderReports() {
 // CLAIM REQUEST
 // ======================================
 
+
 async function createClaimRequest(lost, found) {
 
     if (!currentUser) {
@@ -1005,21 +1006,6 @@ async function createClaimRequest(lost, found) {
 
     try {
 
-        const existing = await claimRef.get();
-
-        if (existing.exists) {
-
-            const existingClaim = existing.data();
-
-            if (existingClaim.status === "Returned") {
-                alert("This item has already been returned.");
-                return;
-            }
-
-            alert("A claim request already exists for this match.");
-            return;
-        }
-
         await claimRef.set({
 
             lostReportId: lost.id,
@@ -1039,9 +1025,7 @@ async function createClaimRequest(lost, found) {
                 firebase.firestore.FieldValue.serverTimestamp()
         });
 
-        alert(
-            "Claim request sent successfully! You can now use Private Chat."
-        );
+        alert("Claim request sent successfully!");
 
     } catch (error) {
 
@@ -1052,6 +1036,7 @@ async function createClaimRequest(lost, found) {
         );
     }
 }
+
 
 // ======================================
 // HIDE RETURNED REPORTS
