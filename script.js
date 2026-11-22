@@ -68,15 +68,16 @@ const notificationBadge =
     document.getElementById("notificationBadge");
 
 let allNotifications = [];
-
 let notificationMessageListeners = {};
-
 let previousClaimStates = {};
-
 let notificationStorageKey = "";
+let readNotificationIds = [];
 
-// Load notifications for current user
-function loadNotifications() {
+// ======================================
+// LOAD NOTIFICATIONS
+// ======================================
+
+async function loadNotifications() {
     if (!currentUser) return;
 
     notificationStorageKey =
@@ -90,14 +91,49 @@ function loadNotifications() {
         allNotifications = Array.isArray(saved) ? saved : [];
 
     } catch (error) {
-        console.error("Notification loading error:", error);
+        console.error("Local notification loading error:", error);
         allNotifications = [];
+    }
+
+    try {
+        const settingsSnapshot = await db
+            .collection("notificationSettings")
+            .doc(currentUser.uid)
+            .get();
+
+        if (settingsSnapshot.exists) {
+            const settings = settingsSnapshot.data();
+
+            readNotificationIds =
+                Array.isArray(settings.readNotificationIds)
+                    ? settings.readNotificationIds
+                    : [];
+
+        } else {
+            readNotificationIds = [];
+        }
+
+        allNotifications.forEach(function (notification) {
+            notification.read =
+                readNotificationIds.includes(notification.id);
+        });
+
+        saveNotifications();
+
+    } catch (error) {
+        console.error(
+            "Firestore notification settings error:",
+            error
+        );
     }
 
     renderNotifications();
 }
 
-// Save notifications
+// ======================================
+// SAVE NOTIFICATIONS LOCALLY
+// ======================================
+
 function saveNotifications() {
     if (!currentUser || !notificationStorageKey) return;
 
@@ -112,7 +148,39 @@ function saveNotifications() {
     }
 }
 
-// Add a new notification
+// ======================================
+// SAVE READ STATUS IN FIRESTORE
+// ======================================
+
+async function saveNotificationReadState() {
+    if (!currentUser) return;
+
+    try {
+        readNotificationIds =
+            readNotificationIds.slice(-500);
+
+        await db.collection("notificationSettings")
+            .doc(currentUser.uid)
+            .set({
+                readNotificationIds: readNotificationIds,
+                updatedAt:
+                    firebase.firestore.FieldValue.serverTimestamp()
+            }, {
+                merge: true
+            });
+
+    } catch (error) {
+        console.error(
+            "Could not save notification read status:",
+            error
+        );
+    }
+}
+
+// ======================================
+// ADD NOTIFICATION
+// ======================================
+
 function addNotification(
     id,
     title,
@@ -136,14 +204,17 @@ function addNotification(
         timeMs: time?.toDate
             ? time.toDate().getTime()
             : Date.now(),
-        read: false
+        read: readNotificationIds.includes(id)
     });
 
     saveNotifications();
     renderNotifications();
 }
 
-// Display notifications
+// ======================================
+// DISPLAY NOTIFICATIONS
+// ======================================
+
 function renderNotifications() {
     if (!notificationList) return;
 
@@ -174,7 +245,6 @@ function renderNotifications() {
 
         const time = document.createElement("small");
         time.className = "notification-time";
-
         time.textContent = new Date(
             notification.timeMs
         ).toLocaleString();
@@ -182,10 +252,17 @@ function renderNotifications() {
         card.append(heading, message, time);
 
         card.addEventListener("click", function () {
-            notification.read = true;
+            if (!notification.read) {
+                notification.read = true;
 
-            saveNotifications();
-            renderNotifications();
+                if (!readNotificationIds.includes(notification.id)) {
+                    readNotificationIds.push(notification.id);
+                }
+
+                saveNotifications();
+                saveNotificationReadState();
+                renderNotifications();
+            }
 
             if (notification.type === "chat") {
                 document.getElementById("chatSection")
@@ -213,7 +290,6 @@ function renderNotifications() {
 
     if (notificationBadge) {
         notificationBadge.textContent = unreadCount;
-
         notificationBadge.style.display =
             unreadCount > 0 ? "inline-flex" : "none";
     }
@@ -223,32 +299,36 @@ function renderNotifications() {
 // REPORT FORM
 // ======================================
 
-// Open Lost report form
 if (lostBtn) {
     lostBtn.addEventListener("click", function () {
         reportType = "Lost";
-        formTitle.textContent = "Report Lost Item";
-        reportPanel.classList.add("active");
+
+        if (formTitle) {
+            formTitle.textContent = "Report Lost Item";
+        }
+
+        reportPanel?.classList.add("active");
     });
 }
 
-// Open Found report form
 if (foundBtn) {
     foundBtn.addEventListener("click", function () {
         reportType = "Found";
-        formTitle.textContent = "Report Found Item";
-        reportPanel.classList.add("active");
+
+        if (formTitle) {
+            formTitle.textContent = "Report Found Item";
+        }
+
+        reportPanel?.classList.add("active");
     });
 }
 
-// Close report form
 if (closePanel) {
     closePanel.addEventListener("click", function () {
-        reportPanel.classList.remove("active");
+        reportPanel?.classList.remove("active");
     });
 }
 
-// View recent items
 if (viewBtn) {
     viewBtn.addEventListener("click", function () {
         document.getElementById("recent")
@@ -322,10 +402,7 @@ if (reportForm) {
 
         } catch (error) {
             console.error("Report submission error:", error);
-
-            alert(
-                "Could not submit report: " + error.message
-            );
+            alert("Could not submit report: " + error.message);
         }
     });
 }
@@ -376,7 +453,6 @@ function editSimilarity(first, second) {
         Math.max(a.length, b.length);
 }
 
-// Phonetic comparison
 function soundCode(word) {
     const text = normalizeText(word).replace(/\s/g, "");
 
@@ -504,10 +580,7 @@ function calculateMatch(lost, found) {
 function renderReports() {
     if (!itemContainer) return;
 
-    const search = normalizeText(
-        searchInput?.value || ""
-    );
-
+    const search = normalizeText(searchInput?.value || "");
     const category = categoryFilter?.value || "";
     const status = statusFilter?.value || "";
 
@@ -545,12 +618,10 @@ function renderReports() {
         statusText.textContent = "Status: " + report.status;
 
         const categoryText = document.createElement("p");
-        categoryText.textContent =
-            "Category: " + report.category;
+        categoryText.textContent = "Category: " + report.category;
 
         const locationText = document.createElement("p");
-        locationText.textContent =
-            "Location: " + report.location;
+        locationText.textContent = "Location: " + report.location;
 
         const dateText = document.createElement("p");
         dateText.textContent = "Date: " + report.itemDate;
@@ -678,10 +749,7 @@ async function hideReturnedReports(claimId, claim) {
         console.log("Returned reports hidden successfully.");
 
     } catch (error) {
-        console.error(
-            "Could not hide returned reports:",
-            error
-        );
+        console.error("Could not hide returned reports:", error);
     }
 }
 
@@ -707,7 +775,6 @@ async function approveClaim(claimId) {
 
         if (claim.status === "Returned") {
             alert("This item has already been returned.");
-
             await hideReturnedReports(claimId, claim);
             return;
         }
@@ -753,10 +820,7 @@ async function approveClaim(claimId) {
                 ...updates
             };
 
-            await hideReturnedReports(
-                claimId,
-                updatedClaim
-            );
+            await hideReturnedReports(claimId, updatedClaim);
 
             alert(
                 "Both students confirmed! The item is marked as returned, and both reports have been hidden."
@@ -770,10 +834,7 @@ async function approveClaim(claimId) {
 
     } catch (error) {
         console.error("Claim approval error:", error);
-
-        alert(
-            "Could not update claim: " + error.message
-        );
+        alert("Could not update claim: " + error.message);
     }
 }
 
@@ -805,20 +866,14 @@ function renderClaimRequests() {
         status.textContent = "Status: " + claim.status;
 
         const lostApproval = document.createElement("p");
-
         lostApproval.textContent =
             "Lost item owner: " +
-            (claim.lostOwnerApproved
-                ? "Approved"
-                : "Waiting");
+            (claim.lostOwnerApproved ? "Approved" : "Waiting");
 
         const foundApproval = document.createElement("p");
-
         foundApproval.textContent =
             "Found item owner: " +
-            (claim.foundOwnerApproved
-                ? "Approved"
-                : "Waiting");
+            (claim.foundOwnerApproved ? "Approved" : "Waiting");
 
         card.append(
             heading,
@@ -833,7 +888,6 @@ function renderClaimRequests() {
                 !claim.lostOwnerApproved
             ) {
                 const button = document.createElement("button");
-
                 button.textContent =
                     "Confirm I Received the Item";
 
@@ -849,7 +903,6 @@ function renderClaimRequests() {
                 !claim.foundOwnerApproved
             ) {
                 const button = document.createElement("button");
-
                 button.textContent =
                     "Confirm I Handed Over the Item";
 
@@ -862,7 +915,6 @@ function renderClaimRequests() {
 
         } else {
             const completed = document.createElement("p");
-
             completed.textContent =
                 "Both students approved. Item returned!";
 
@@ -877,7 +929,6 @@ function renderClaimRequests() {
 // PRIVATE CHAT
 // ======================================
 
-// Display conversations
 function renderChatList() {
     if (!chatList || !currentUser) return;
 
@@ -903,8 +954,7 @@ function renderChatList() {
     });
 
     claims.forEach(function ([claimId, claim]) {
-        const conversation =
-            document.createElement("button");
+        const conversation = document.createElement("button");
 
         conversation.type = "button";
         conversation.className = "chat-conversation";
@@ -915,10 +965,7 @@ function renderChatList() {
                 : "the lost item owner";
 
         conversation.textContent =
-            "Conversation with " +
-            role +
-            " — " +
-            claim.status;
+            "Conversation with " + role + " — " + claim.status;
 
         conversation.addEventListener("click", function () {
             openChat(claimId, claim);
@@ -928,7 +975,10 @@ function renderChatList() {
     });
 }
 
-// Open a conversation
+// ======================================
+// OPEN A CONVERSATION
+// ======================================
+
 function openChat(claimId, claim) {
     if (!currentUser || !chatWindow || !chatMessages) {
         return;
@@ -938,9 +988,7 @@ function openChat(claimId, claim) {
         currentUser.uid !== claim.lostOwnerUid &&
         currentUser.uid !== claim.foundOwnerUid
     ) {
-        alert(
-            "You are not allowed to open this conversation."
-        );
+        alert("You are not allowed to open this conversation.");
         return;
     }
 
@@ -954,8 +1002,7 @@ function openChat(claimId, claim) {
                 : "Chat with the lost item owner";
     }
 
-    chatMessages.innerHTML =
-        "<p>Loading messages...</p>";
+    chatMessages.innerHTML = "<p>Loading messages...</p>";
 
     updateChatStatus(claim);
 
@@ -980,8 +1027,7 @@ function openChat(claimId, claim) {
             snapshot.forEach(function (doc) {
                 const message = doc.data();
 
-                const messageBox =
-                    document.createElement("div");
+                const messageBox = document.createElement("div");
 
                 messageBox.className =
                     "chat-message " +
@@ -991,18 +1037,14 @@ function openChat(claimId, claim) {
                             : "other-message"
                     );
 
-                const messageText =
-                    document.createElement("p");
-
+                const messageText = document.createElement("p");
                 messageText.textContent = message.text;
 
-                const timeText =
-                    document.createElement("small");
+                const timeText = document.createElement("small");
 
                 if (message.createdAt?.toDate) {
                     timeText.textContent =
-                        message.createdAt.toDate()
-                            .toLocaleString();
+                        message.createdAt.toDate().toLocaleString();
                 } else {
                     timeText.textContent = "Sending...";
                 }
@@ -1011,23 +1053,23 @@ function openChat(claimId, claim) {
                 chatMessages.appendChild(messageBox);
             });
 
-            chatMessages.scrollTop =
-                chatMessages.scrollHeight;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
 
         }, function (error) {
             console.error("Chat loading error:", error);
-
             chatMessages.textContent =
                 "Could not load messages: " + error.message;
         });
 }
 
-// Enable or disable chat
+// ======================================
+// ENABLE OR DISABLE CHAT
+// ======================================
+
 function updateChatStatus(claim) {
     if (!chatForm || !chatInput) return;
 
-    const returned =
-        claim.status === "Returned";
+    const returned = claim.status === "Returned";
 
     chatInput.disabled = returned;
 
@@ -1037,9 +1079,7 @@ function updateChatStatus(claim) {
 
     if (button) {
         button.disabled = returned;
-
-        button.textContent =
-            returned ? "Chat Closed" : "Send";
+        button.textContent = returned ? "Chat Closed" : "Send";
     }
 
     chatInput.placeholder = returned
@@ -1047,7 +1087,10 @@ function updateChatStatus(claim) {
         : "Type your message...";
 }
 
-// Send a message
+// ======================================
+// SEND A MESSAGE
+// ======================================
+
 if (chatForm) {
     chatForm.addEventListener("submit", async function (event) {
         event.preventDefault();
@@ -1067,7 +1110,6 @@ if (chatForm) {
             alert("This conversation is closed.");
 
             if (claim) updateChatStatus(claim);
-
             return;
         }
 
@@ -1075,9 +1117,7 @@ if (chatForm) {
             currentUser.uid !== claim.lostOwnerUid &&
             currentUser.uid !== claim.foundOwnerUid
         ) {
-            alert(
-                "You cannot send messages in this conversation."
-            );
+            alert("You cannot send messages in this conversation.");
             return;
         }
 
@@ -1102,10 +1142,7 @@ if (chatForm) {
 
         } catch (error) {
             console.error("Message sending error:", error);
-
-            alert(
-                "Could not send message: " + error.message
-            );
+            alert("Could not send message: " + error.message);
 
         } finally {
             if (button && claim.status === "Pending") {
@@ -1119,7 +1156,6 @@ if (chatForm) {
 // NOTIFICATION: NEW CHAT MESSAGES
 // ======================================
 
-// Listen for new messages in each claim
 function startNotificationMessageListener(claimId) {
     if (notificationMessageListeners[claimId]) {
         return;
@@ -1133,8 +1169,6 @@ function startNotificationMessageListener(claimId) {
         .orderBy("createdAt", "asc")
         .onSnapshot(function (snapshot) {
 
-            // Do not notify about old messages
-            // when the listener first starts
             if (firstSnapshot) {
                 firstSnapshot = false;
                 return;
@@ -1145,7 +1179,6 @@ function startNotificationMessageListener(claimId) {
 
                 const message = change.doc.data();
 
-                // Do not notify the sender about their own message
                 if (message.senderUid === currentUser.uid) {
                     return;
                 }
@@ -1182,10 +1215,8 @@ function processClaimNotifications(claimId, claim) {
 
     const previous = previousClaimStates[claimId];
 
-    // First time this claim is loaded on this device
     if (!previous) {
 
-        // Notify the Finder about a pending new claim
         if (
             currentUser.uid === claim.foundOwnerUid &&
             claim.status === "Pending"
@@ -1200,8 +1231,6 @@ function processClaimNotifications(claimId, claim) {
             );
         }
 
-        // Show an approval notification if the other
-        // student had already approved while this user was away
         if (
             claim.lostOwnerApproved &&
             currentUser.uid === claim.foundOwnerUid
@@ -1250,7 +1279,6 @@ function processClaimNotifications(claimId, claim) {
         return;
     }
 
-    // Lost owner approved
     if (
         !previous.lostOwnerApproved &&
         claim.lostOwnerApproved &&
@@ -1265,7 +1293,6 @@ function processClaimNotifications(claimId, claim) {
         );
     }
 
-    // Finder approved
     if (
         !previous.foundOwnerApproved &&
         claim.foundOwnerApproved &&
@@ -1280,7 +1307,6 @@ function processClaimNotifications(claimId, claim) {
         );
     }
 
-    // Both students confirmed the return
     if (
         previous.status !== "Returned" &&
         claim.status === "Returned"
@@ -1333,7 +1359,6 @@ function listenToClaims(user) {
                 allClaims[doc.id] = claim;
 
                 processClaimNotifications(doc.id, claim);
-
                 startNotificationMessageListener(doc.id);
 
                 if (claim.status === "Returned") {
@@ -1353,10 +1378,7 @@ function listenToClaims(user) {
             }
 
         }, function (error) {
-            console.error(
-                "Lost claim listener error:",
-                error
-            );
+            console.error("Lost claim listener error:", error);
         });
 
     // Claims where current user is Found owner
@@ -1370,7 +1392,6 @@ function listenToClaims(user) {
                 allClaims[doc.id] = claim;
 
                 processClaimNotifications(doc.id, claim);
-
                 startNotificationMessageListener(doc.id);
 
                 if (claim.status === "Returned") {
@@ -1390,10 +1411,7 @@ function listenToClaims(user) {
             }
 
         }, function (error) {
-            console.error(
-                "Found claim listener error:",
-                error
-            );
+            console.error("Found claim listener error:", error);
         });
 }
 
@@ -1428,21 +1446,16 @@ function findMatches() {
     lostReports.forEach(function (lost) {
         foundReports.forEach(function (found) {
 
-            if (lost.ownerUid === found.ownerUid) {
-                return;
-            }
+            if (lost.ownerUid === found.ownerUid) return;
 
             const result = calculateMatch(lost, found);
 
             if (!result) return;
 
             const claimId = lost.id + "_" + found.id;
-
             const existingClaim = allClaims[claimId];
 
-            if (existingClaim?.status === "Returned") {
-                return;
-            }
+            if (existingClaim?.status === "Returned") return;
 
             matches.push({
                 lost: lost,
@@ -1462,10 +1475,7 @@ function findMatches() {
 
     if (matches.length === 0) {
         const message = document.createElement("p");
-
-        message.textContent =
-            "No possible matches found yet.";
-
+        message.textContent = "No possible matches found yet.";
         matchContainer.appendChild(message);
         return;
     }
@@ -1475,7 +1485,6 @@ function findMatches() {
         card.className = "item-card";
 
         const heading = document.createElement("h3");
-
         heading.textContent =
             "Possible Match: " +
             match.lost.itemName +
@@ -1483,42 +1492,28 @@ function findMatches() {
             match.found.itemName;
 
         const nameScore = document.createElement("p");
-
         nameScore.textContent =
-            "Name Similarity: " +
-            match.result.name +
-            "%";
+            "Name Similarity: " + match.result.name + "%";
 
         const overallScore = document.createElement("p");
-
         overallScore.textContent =
-            "Overall Match: " +
-            match.result.total +
-            "%";
+            "Overall Match: " + match.result.total + "%";
 
         const lostLocation = document.createElement("p");
-
         lostLocation.textContent =
-            "Lost Location: " +
-            match.lost.location;
+            "Lost Location: " + match.lost.location;
 
         const foundLocation = document.createElement("p");
-
         foundLocation.textContent =
-            "Found Location: " +
-            match.found.location;
+            "Found Location: " + match.found.location;
 
         const lostDescription = document.createElement("p");
-
         lostDescription.textContent =
-            "Lost Description: " +
-            match.lost.description;
+            "Lost Description: " + match.lost.description;
 
         const foundDescription = document.createElement("p");
-
         foundDescription.textContent =
-            "Found Description: " +
-            match.found.description;
+            "Found Description: " + match.found.description;
 
         card.append(
             heading,
@@ -1535,14 +1530,10 @@ function findMatches() {
             match.lost.ownerUid === currentUser.uid
         ) {
             const button = document.createElement("button");
-
             button.textContent = "Send Claim Request";
 
             button.addEventListener("click", function () {
-                createClaimRequest(
-                    match.lost,
-                    match.found
-                );
+                createClaimRequest(match.lost, match.found);
             });
 
             card.appendChild(button);
@@ -1552,7 +1543,6 @@ function findMatches() {
             match.found.ownerUid === currentUser.uid
         ) {
             const message = document.createElement("p");
-
             message.textContent =
                 "Waiting for the Lost item owner to send a claim request.";
 
@@ -1573,8 +1563,7 @@ function listenToReports() {
     if (stopReports) stopReports();
 
     if (itemContainer) {
-        itemContainer.innerHTML =
-            "<p>Loading items...</p>";
+        itemContainer.innerHTML = "<p>Loading items...</p>";
     }
 
     stopReports = db.collection("reports")
@@ -1613,31 +1602,22 @@ function listenToReports() {
 // ======================================
 
 if (searchInput) {
-    searchInput.addEventListener(
-        "input",
-        renderReports
-    );
+    searchInput.addEventListener("input", renderReports);
 }
 
 if (categoryFilter) {
-    categoryFilter.addEventListener(
-        "change",
-        renderReports
-    );
+    categoryFilter.addEventListener("change", renderReports);
 }
 
 if (statusFilter) {
-    statusFilter.addEventListener(
-        "change",
-        renderReports
-    );
+    statusFilter.addEventListener("change", renderReports);
 }
 
 // ======================================
 // FIREBASE AUTHENTICATION
 // ======================================
 
-auth.onAuthStateChanged(function (user) {
+auth.onAuthStateChanged(async function (user) {
 
     if (user) {
         currentUser = user;
@@ -1647,10 +1627,10 @@ auth.onAuthStateChanged(function (user) {
             user.uid
         );
 
-        // Load this student's saved notifications
-        loadNotifications();
+        // Load notifications and read status
+        await loadNotifications();
 
-        // Listen for reports and claims
+        // Start reports and claim listeners
         listenToReports();
         listenToClaims(user);
 
@@ -1658,10 +1638,7 @@ auth.onAuthStateChanged(function (user) {
         currentUser = null;
 
         auth.signInAnonymously().catch(function (error) {
-            console.error(
-                "Anonymous login error:",
-                error
-            );
+            console.error("Anonymous login error:", error);
 
             if (itemContainer) {
                 itemContainer.innerHTML =
