@@ -1,4 +1,3 @@
-
 let reportType = "";
 let allReports = [];
 let allClaims = {};
@@ -907,7 +906,7 @@ function renderReports() {
 }
 
 // ======================================
-// CLAIM REQUEST
+// CREATE CLAIM REQUEST
 // ======================================
 
 async function createClaimRequest(lost, found) {
@@ -934,17 +933,12 @@ async function createClaimRequest(lost, found) {
     const claimId = lost.id + "_" + found.id;
     const claimRef = db.collection("claims").doc(claimId);
 
-    // Check the claims already loaded by the claim listeners.
     if (allClaims[claimId]) {
         alert("A claim request already exists for this match.");
         return;
     }
 
     try {
-        // Do not call claimRef.get() here.
-        // A read of a claim that does not exist can be denied
-        // by rules that only allow claim participants to read it.
-
         await claimRef.set({
             lostReportId: lost.id,
             foundReportId: found.id,
@@ -970,6 +964,58 @@ async function createClaimRequest(lost, found) {
 
         alert(
             "Could not send claim request: " + error.message
+        );
+    }
+}
+
+// ======================================
+// WITHDRAW CLAIM REQUEST
+// ======================================
+
+async function withdrawClaim(claimId) {
+    if (!currentUser) {
+        alert("Please wait for Firebase connection.");
+        return;
+    }
+
+    const claim = allClaims[claimId];
+
+    if (!claim) {
+        alert("Claim request not found.");
+        return;
+    }
+
+    if (currentUser.uid !== claim.lostOwnerUid) {
+        alert("Only the Lost item owner can withdraw this claim.");
+        return;
+    }
+
+    if (claim.status !== "Pending") {
+        alert("Only Pending claims can be withdrawn.");
+        return;
+    }
+
+    const confirmed = confirm(
+        "Are you sure you want to withdraw this claim request? " +
+        "This match will no longer appear in Possible Matches."
+    );
+
+    if (!confirmed) return;
+
+    try {
+        await db.collection("claims")
+            .doc(claimId)
+            .update({
+                status: "Withdrawn"
+            });
+
+        alert("Claim request withdrawn successfully!");
+
+    } catch (error) {
+        console.error("Claim withdrawal error:", error);
+
+        alert(
+            "Could not withdraw claim: " + error.message
         );
     }
 }
@@ -1043,8 +1089,10 @@ async function approveClaim(claimId) {
 
         const claim = snapshot.data();
 
-        if (claim.status === "Returned") {
-            alert("This item has already been returned.");
+        if (claim.status !== "Pending") {
+            alert(
+                "This claim is no longer pending and cannot be approved."
+            );
             return;
         }
 
@@ -1151,7 +1199,7 @@ function renderClaimRequests() {
             foundApproval
         );
 
-        if (claim.status !== "Returned") {
+        if (claim.status === "Pending") {
             if (
                 currentUser.uid === claim.lostOwnerUid &&
                 !claim.lostOwnerApproved
@@ -1182,12 +1230,36 @@ function renderClaimRequests() {
                 card.appendChild(button);
             }
 
-        } else {
+            // Only the Lost item owner can withdraw.
+            if (currentUser.uid === claim.lostOwnerUid) {
+                const withdrawButton =
+                    document.createElement("button");
+
+                withdrawButton.textContent = "Withdraw Claim";
+                withdrawButton.className = "withdraw-claim-btn";
+
+                withdrawButton.addEventListener("click", function () {
+                    withdrawClaim(claimId);
+                });
+
+                card.appendChild(withdrawButton);
+            }
+
+        } else if (claim.status === "Returned") {
             const completed = document.createElement("p");
+
             completed.textContent =
                 "Both students approved. Item returned!";
 
             card.appendChild(completed);
+
+        } else if (claim.status === "Withdrawn") {
+            const withdrawn = document.createElement("p");
+
+            withdrawn.textContent =
+                "The Lost item owner withdrew this claim request.";
+
+            card.appendChild(withdrawn);
         }
 
         claimContainer.appendChild(card);
@@ -1334,22 +1406,36 @@ function openChat(claimId, claim) {
 function updateChatStatus(claim) {
     if (!chatForm || !chatInput) return;
 
-    const returned = claim.status === "Returned";
+    // Chat is writable only while the claim is Pending.
+    const closed = claim.status !== "Pending";
 
-    chatInput.disabled = returned;
+    chatInput.disabled = closed;
 
     const button = chatForm.querySelector(
         "button[type='submit']"
     );
 
     if (button) {
-        button.disabled = returned;
-        button.textContent = returned ? "Chat Closed" : "Send";
+        button.disabled = closed;
+
+        if (claim.status === "Returned") {
+            button.textContent = "Chat Closed";
+        } else if (claim.status === "Withdrawn") {
+            button.textContent = "Claim Withdrawn";
+        } else {
+            button.textContent = "Send";
+        }
     }
 
-    chatInput.placeholder = returned
-        ? "This item has been returned. Chat is closed."
-        : "Type your message...";
+    if (claim.status === "Withdrawn") {
+        chatInput.placeholder =
+            "This claim was withdrawn. Chat is read-only.";
+    } else if (claim.status === "Returned") {
+        chatInput.placeholder =
+            "This item has been returned. Chat is closed.";
+    } else {
+        chatInput.placeholder = "Type your message...";
+    }
 }
 
 // ======================================
@@ -1534,6 +1620,22 @@ function processClaimNotifications(claimId, claim) {
             );
         }
 
+        // Also notify the Found item owner if the claim
+        // was already withdrawn before their first snapshot.
+        if (
+            claim.status === "Withdrawn" &&
+            currentUser.uid === claim.foundOwnerUid
+        ) {
+            addNotification(
+                "claim-withdrawn-" + claimId,
+                "Claim Request Withdrawn",
+                "The Lost item owner has withdrawn this claim request.",
+                "claim",
+                claimId,
+                claim.createdAt
+            );
+        }
+
         previousClaimStates[claimId] = {
             lostOwnerApproved: claim.lostOwnerApproved,
             foundOwnerApproved: claim.foundOwnerApproved,
@@ -1579,6 +1681,21 @@ function processClaimNotifications(claimId, claim) {
             "claim-returned-" + claimId,
             "Item Returned",
             "Both students confirmed. The item has been marked as returned.",
+            "claim",
+            claimId
+        );
+    }
+
+    // Notify the Found item owner when the Lost owner withdraws.
+    if (
+        previous.status !== "Withdrawn" &&
+        claim.status === "Withdrawn" &&
+        currentUser.uid === claim.foundOwnerUid
+    ) {
+        addNotification(
+            "claim-withdrawn-" + claimId,
+            "Claim Request Withdrawn",
+            "The Lost item owner has withdrawn this claim request.",
             "claim",
             claimId
         );
@@ -1713,7 +1830,12 @@ async function findMatches() {
             const claimId = lost.id + "_" + found.id;
             const existingClaim = allClaims[claimId];
 
-            if (existingClaim?.status === "Returned") return;
+            // Do not show matches that were already completed
+            // or withdrawn by the Lost item owner.
+            if (
+                existingClaim?.status === "Returned" ||
+                existingClaim?.status === "Withdrawn"
+            ) return;
 
             possiblePairs.push({
                 lost: lost,
@@ -1736,7 +1858,6 @@ async function findMatches() {
 
     matchContainer.appendChild(loading);
 
-    // Compare all possible pairs.
     const results = await Promise.all(
         possiblePairs.map(async function (pair) {
             const photoResult = await getPhotoSimilarity(
@@ -1766,7 +1887,6 @@ async function findMatches() {
         })
     );
 
-    // Ignore an old matching operation if a newer one started.
     if (renderVersion !== matchRenderVersion) return;
 
     matchContainer.innerHTML = "";
